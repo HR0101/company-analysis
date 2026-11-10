@@ -16,7 +16,9 @@ Supports:
 
 import argparse
 import json
+import re
 import sys
+import unicodedata
 from typing import Dict, List, Optional, Tuple
 
 
@@ -495,21 +497,46 @@ ARCHETYPE_PATTERNS: Dict[str, dict] = {
 
 
 def resolve_pattern(query: str, catalog: Dict[str, dict], default_key: str) -> str:
-    if not query:
+    if not query or not query.strip():
         return default_key
-    q = query.strip().lower()
+    q = unicodedata.normalize("NFKC", query).strip().lower()
     if q in catalog:
         return q
+    exact = {
+        key for key, data in catalog.items()
+        if q in [unicodedata.normalize("NFKC", a).lower() for a in data.get("aliases", [])]
+        or q == unicodedata.normalize("NFKC", data["name"]).lower()
+    }
+    if len(exact) == 1:
+        return exact.pop()
+    if len(exact) > 1:
+        raise ValueError(f"曖昧なパターン {query!r}: IDを指定してください ({', '.join(sorted(exact))})")
+
+    # Prefer specific phrases (第二新卒 over 新卒). Menu numbers are exact-only;
+    # Latin abbreviations must have boundaries, so 'it' cannot match 'retail'.
+    matches = []
     for key, data in catalog.items():
-        if q in [a.lower() for a in data.get("aliases", [])]:
-            return key
-    for key, data in catalog.items():
-        if q in key or q in data["name"].lower():
-            return key
-        for alias in data.get("aliases", []):
-            if alias.lower() in q or q in alias.lower():
-                return key
-    return default_key
+        for token in [key, data["name"], *data.get("aliases", [])]:
+            token = unicodedata.normalize("NFKC", token).lower()
+            if token.isdigit():
+                continue
+            if token.isascii():
+                matched = re.search(r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])", q)
+            else:
+                matched = token in q
+            if matched:
+                matches.append((key, token))
+    if matches:
+        # Ignore a generic token only when a more specific matched phrase contains
+        # it. Independent alternatives remain ambiguous even at different lengths.
+        winners = sorted({
+            key for key, token in matches
+            if not any(token != other and token in other for _, other in matches)
+        })
+        if len(winners) == 1:
+            return winners[0]
+        raise ValueError(f"曖昧なパターン {query!r}: IDを指定してください ({', '.join(winners)})")
+    raise ValueError(f"未知のパターン {query!r}: 有効なIDは {', '.join(catalog)}")
 
 
 def build_blueprint(
@@ -690,11 +717,14 @@ def main():
             print(list_all_patterns_markdown())
         return
 
-    ind_key = resolve_pattern(args.industry, INDUSTRY_PATTERNS, "it-saas-web")
-    role_key = resolve_pattern(args.role, ROLE_PATTERNS, "sales-cs")
-    stage_key = resolve_pattern(args.stage, STAGE_PATTERNS, "first-interview")
-    cand_key = resolve_pattern(args.candidate, CANDIDATE_PATTERNS, "new-grad")
-    arch_key = resolve_pattern(args.archetype, ARCHETYPE_PATTERNS, "listed-enterprise")
+    try:
+        ind_key = resolve_pattern(args.industry, INDUSTRY_PATTERNS, "it-saas-web")
+        role_key = resolve_pattern(args.role, ROLE_PATTERNS, "sales-cs")
+        stage_key = resolve_pattern(args.stage, STAGE_PATTERNS, "first-interview")
+        cand_key = resolve_pattern(args.candidate, CANDIDATE_PATTERNS, "new-grad")
+        arch_key = resolve_pattern(args.archetype, ARCHETYPE_PATTERNS, "listed-enterprise")
+    except ValueError as exc:
+        parser.error(str(exc))
     comps = [c.strip() for c in args.competitors.split(",") if c.strip()]
 
     bp = build_blueprint(

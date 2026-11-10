@@ -14,7 +14,7 @@ Codex CLI はもちろん、**ChatGPT / Codex デスクトップアプリ（macO
 1. **「誰でも言える企業理念への共感」を脱却する一次情報5大ソース解読メソッド**
    - **有価証券報告書（EDINET）**：セグメント別利益率、【事業等のリスク】、【設備投資・研究開発】、人的資本指標（平均年間給与・平均勤続年数・女性管理職比率）から「本当の稼ぎ頭」と「経営課題」を特定
    - **決算説明資料・中期経営計画**：経営陣が投資家にコミットしているKPI（ARR・NRR・ROE・ROIC等）と今後3〜5年の最重点投資領域を抽出
-   - **統合報告書 × OpenWork（口コミ）のギャップ突合**：会社が掲げる理想と現場のリアル（20代成長環境・風通し・法令順守意識のスコア差）を掛け合わせ、「真のホワイト」「成長ベンチャー」「ゆるブラック（茹でガエル危険）」「ハードワーク高報酬」を客観診断
+   - **統合報告書 × OpenWork（口コミ）のギャップ突合**：会社が掲げる理想と現場のリアル（20代成長環境・風通し・法令順守意識のスコア差）を掛け合わせ、入力済みの口コミ評価と公式開示の違いを検証するための論点を整理（口コミだけで企業全体の良否は判定しません）
 2. **「5軸パターン選択」であなた専用の分析・対策シートに自動最適化**
    - **8大業界（25サブセクター） × 6大職種（20専門ロール） × 6選考フェーズ（何次面接か） × 候補者属性（新卒/中途/第二新卒） × 企業タイプ（日系大手/メガベンチャー/未上場スタートアップ/外資系）** の組み合わせから最適な分析項目・評価基準・逆質問を自動設計
 3. **「何次面接か」に応じた面接官の役職プロファイリングと仮説検証型逆質問**
@@ -29,7 +29,7 @@ Codex CLI はもちろん、**ChatGPT / Codex デスクトップアプリ（macO
 
 ### 方法A：ワンライナーで一括インストール（推奨・CLI＆デスクトップアプリ両対応）
 
-以下の1行をターミナルで実行すると、`~/.codex/skills/company-analysis`、`~/.agents/skills/company-analysis`、およびデスクトップアプリ用プラグイン（`~/.codex/plugins/company-analysis` と `~/.agents/plugins/marketplace.json`）へ一括でインストール＆有効化されます。
+以下の1行をターミナルで実行すると、`~/.codex/skills/company-analysis`、`~/.agents/skills/company-analysis`、およびデスクトップアプリ用プラグイン（`~/.codex/plugins/company-analysis` と `~/.agents/plugins/marketplace.json`）へ一括で配置し、CLIが利用可能なら有効化を試みます。既存のマーケットプレイス設定が不正な場合は変更前に停止し、正常な既存設定の更新時には同じディレクトリへ一意な `.bak` ファイルを保存します。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HR0101/company-analysis-codex/main/install.sh | bash
@@ -94,6 +94,8 @@ git clone https://github.com/HR0101/company-analysis-codex.git ~/.codex/skills/c
 
 ## デスクトップアプリ＆CLIでの使い方
 
+企業研究・IR分析・業績比較だけの依頼では、職種や面接フェーズを指定する必要はありません。企業名だけでも全体像の分析から始められます。志望動機・逆質問は選考対策を依頼した場合に作成します。
+
 チャット欄で `$company-analysis` をメンションするか、そのまま自然言語で「〇〇の企業分析をして」「〇〇の2次面接対策をして」と話しかけてください。
 
 ### プロンプト例（コピペして使えます）
@@ -138,17 +140,19 @@ $company-analysis 内定比較モードで、NTTデータと野村総合研究�
 
 | 軸 | 選択肢（パターンID / 日本語指定どちらも対応） |
 | :--- | :--- |
-| **① 業界 (`industry`)** | `it-saas`（IT・SaaS・Web・AI） / `manufacturing`（メーカー：半導体・自動車・電機・化学・食品） / `trading`（商社：総合商社・専門商社） / `finance`（金融：メガバンク・証券・保険・アセマネ・PE） / `consulting`（コンサル：戦略・総合・IT・FAS） / `infra-realestate-logistics`（インフラ・不動産・デベロッパー・物流） / `media-ads-entertainment`（広告・メディア・エンタメ・ゲーム） / `retail-service-hr-healthcare`（小売・人材・医療ヘルステック・サービス） |
-| **② 希望職種 (`role`)** | `sales-bd`（営業・法人営業・海外営業・アライアンス） / `planning-marketing-bizdev`（商品企画・マーケ・経営企画・新規事業BizDev） / `consultant-analyst`（コンサルタント・リサーチャー・M&Aアナリスト） / `software-ai-data`（SWE・AIエンジニア・データサイエンティスト・PdM） / `rd-manufacturing-hardware`（研究開発R&D・生産技術・品質管理・機電系） / `corporate-hr-finance-legal`（コーポレート：経理財務・法務・人事・広報IR） |
-| **③ 何次面接か (`stage`)** | `casual-ob`（カジュアル面談・OB/OG訪問・座談会） / `es-resume`（ES・職務経歴書・書類選考） / `first-interview`（1次面接：現場社員・人事） / `second-interview`（2次面接：課長・部長・PM） / `final-interview`（最終面接：社長・役員・人事統括） / `offer-comparison`（内定後オファー面談・複数社内定比較） |
+| **① 業界 (`industry`)** | `it-saas-web`（IT・SaaS・Web・AI） / `manufacturing`（メーカー：半導体・自動車・電機・化学・食品） / `trading`（商社：総合商社・専門商社） / `finance`（金融：メガバンク・証券・保険・アセマネ・PE） / `consulting`（コンサル：戦略・総合・IT・FAS） / `real-estate-infra-logistics`（インフラ・不動産・デベロッパー・物流） / `media-ad-entertainment`（広告・メディア・エンタメ・ゲーム） / `hr-retail-service-healthcare`（小売・人材・医療ヘルステック・サービス） |
+| **② 希望職種 (`role`)** | `sales-cs`（営業・法人営業・海外営業・アライアンス） / `planning-marketing-bizdev`（商品企画・マーケ・経営企画・新規事業BizDev） / `pdm-pm-consultant`（PdM・PM・コンサルタント・プリセールス） / `software-ai-engineer`（SWE・AIエンジニア・データサイエンティスト） / `rd-manufacturing-eng`（研究開発R&D・生産技術・品質管理・機電系） / `corporate`（コーポレート：経理財務・法務・人事・広報IR） |
+| **③ 何次面接か (`stage`)** | `casual-intern-ob`（カジュアル面談・OB/OG訪問・座談会） / `es-resume`（ES・職務経歴書・書類選考） / `first-interview`（1次面接：現場社員・人事） / `second-interview`（2次面接：課長・部長・PM） / `final-interview`（最終面接：社長・役員・人事統括） / `offer-comparison`（内定後オファー面談・複数社内定比較） |
 | **④ 候補者属性 (`candidate`)** | `new-grad`（新卒：学部・修士・博士） / `mid-career`（中途・キャリア採用） / `second-new-grad`（第二新卒・既卒・ポテンシャル転職） |
-| **⑤ 企業タイプ (`archetype`)** | `listed-enterprise`（日系大手・上場プライム企業） / `mega-venture`（メガベンチャー・上場グロース企業） / `startup`（未上場スタートアップ：シード〜レイター） / `foreign-affiliated`（外資系企業：テック・コンサル・金融・消費財） |
+| **⑤ 企業タイプ (`archetype`)** | `listed-enterprise`（日系大手・上場プライム企業） / `mega-venture`（メガベンチャー・上場グロース企業） / `startup-unlisted`（未上場スタートアップ：シード〜レイター） / `foreign-affiliated`（外資系企業：テック・コンサル・金融・消費財） |
 
 ---
 
 ## 同梱CLIスクリプトの単体実行方法
 
 スキル内の `scripts/` には、Python標準ライブラリのみで動作する3つのCLIツールが同梱されています。ターミナルから直接呼び出すことも可能です。
+
+未指定の軸にはCLIの既定値を使います。明示した指定が未知・曖昧な場合はエラーになるため、`--list` でIDを確認してください。補足付きの日本語も扱えます（例：`2次面接（現場部長クラス）`、`第二新卒（社会人2年目）`）。
 
 ### 1. `pattern_selector.py`（5軸パターン一覧＆分析ブループリント生成）
 
@@ -177,11 +181,15 @@ python3 scripts/financial_analyzer.py \
   --total-assets 220 --equity 130 --employees 350 \
   --operating-cf 35 --investing-cf -18 --financing-cf -5 \
   --avg-age 32.4 --avg-tenure 4.2 --avg-salary 820 \
-  --ow-overall 4.15 --ow-growth20s 4.4 --ow-openness 4.2 \
-  --ow-compliance 3.9 --ow-appraisal 3.8
+  --ow-overall 4.15 --ow-growth20s 4.4 \
+  --ow-compliance 3.9 --ow-evaluation 3.8
 ```
 
-### 3. `report_generator.py`（企業分析＆選考対策シートの生成）
+CF診断は符号分類と金額の関係を整理するもので、資金繰りの健全性の断定には現預金・返済予定・複数年の資料が別途必要です。口コミ診断も入力済みの評価だけを使い、不足する指標は判定不能とします。
+
+### 3. `report_generator.py`（選考対策用ワークシートの生成）
+
+出力は空欄付きのひな形です。完成レポートには確認済みの資料で内容を補い、数値の年度・出典を記載してください。
 
 ```bash
 # 完全版マスターシート (--mode full)、直前5分チートシート (--mode cheatsheet)、内定比較シート (--mode offer-comparison) に対応

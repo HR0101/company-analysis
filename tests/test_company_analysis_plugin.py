@@ -11,18 +11,34 @@ Tests:
 """
 
 import json
+import importlib.util
+import itertools
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_DIR = REPO_ROOT / "plugins" / "company-analysis"
 SKILL_DIR = PLUGIN_DIR / "skills" / "company-analysis"
 SCRIPTS_DIR = SKILL_DIR / "scripts"
+
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+financial = load_module("financial", SCRIPTS_DIR / "financial_analyzer.py")
+patterns = load_module("patterns", SCRIPTS_DIR / "pattern_selector.py")
+marketplace = load_module("marketplace", REPO_ROOT / "tools" / "update_marketplace.py")
 
 
 class TestCompanyAnalysisPlugin(unittest.TestCase):
@@ -136,7 +152,7 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
 
     def test_financial_analyzer_cf_and_human_capital(self):
         script = SCRIPTS_DIR / "financial_analyzer.py"
-        # Case 1: Healthy growth + White company
+        # Known financial ratios and four provided review scores.
         res1 = subprocess.run(
             [
                 sys.executable,
@@ -177,6 +193,8 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
                 "4.2",
                 "--ow-compliance",
                 "3.9",
+                "--ow-evaluation",
+                "3.7",
                 "--format",
                 "json",
             ],
@@ -187,10 +205,12 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
         d1 = json.loads(res1.stdout)
         self.assertEqual(d1["metrics"]["operating_margin_pct"], 20.0)
         self.assertGreater(d1["metrics"]["rule_of_40_score"], 50.0)
-        self.assertIn("王道・優良成長型", d1["cash_flow_diagnosis"]["pattern_label"])
-        self.assertIn("真のホワイト", d1["human_capital_diagnosis"]["organization_archetype"])
+        self.assertTrue(d1["cash_flow_diagnosis"]["operating_cf_covers_investing_outflow"])
+        self.assertEqual(d1["cash_flow_diagnosis"]["cash_change_before_fx"], 20.0)
+        self.assertEqual(d1["human_capital_diagnosis"]["missing_scores"], [])
+        self.assertEqual(d1["human_capital_diagnosis"]["provided_scores"]["evaluation"], 3.7)
 
-        # Case 2: Yuru-black detection
+        # Contrasting growth/compliance scores must not invent a low evaluation score.
         res2 = subprocess.run(
             [
                 sys.executable,
@@ -203,6 +223,8 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
                 "2.3",
                 "--ow-compliance",
                 "4.2",
+                "--ow-evaluation",
+                "5.0",
                 "--format",
                 "json",
             ],
@@ -211,7 +233,144 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
             check=True,
         )
         d2 = json.loads(res2.stdout)
-        self.assertIn("ゆるブラック", d2["human_capital_diagnosis"]["organization_archetype"])
+        hc = d2["human_capital_diagnosis"]
+        self.assertEqual(hc["provided_scores"]["evaluation"], 5.0)
+        evaluation_finding = next(f for f in hc["findings"] if f.startswith("口コミの人事評価"))
+        self.assertIn("5.0/5", evaluation_finding)
+        self.assertNotIn("低め", evaluation_finding)
+
+    def test_missing_review_scores_are_not_inferred(self):
+        for supplied in [{}, {"ow_overall": 4.0}, {"ow_evaluation": 5.0}]:
+            with self.subTest(supplied=supplied):
+                args = dict.fromkeys([
+                    "avg_age", "avg_tenure", "avg_salary_man", "ow_overall",
+                    "ow_growth20s", "ow_compliance", "ow_evaluation",
+                ])
+                args.update(supplied)
+                result = financial.diagnose_human_capital(**args)
+                self.assertEqual(len(result["provided_scores"]), len(supplied))
+                self.assertEqual(len(result["missing_scores"]), 4 - len(supplied))
+                self.assertNotIn("優良組織", " ".join(result["findings"]))
+                self.assertNotIn("ホワイト", result["organization_archetype"])
+
+    def test_review_scores_outside_scale_are_rejected(self):
+        for value in [0, 6, float("nan"), float("inf")]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                financial.diagnose_human_capital(None, None, None, value, None, None, None)
+
+    def test_cf_signs_do_not_override_amounts(self):
+        shortfall = financial.diagnose_cash_flow(1, -100, -100)
+        covered = financial.diagnose_cash_flow(300, -100, -100)
+        self.assertEqual(shortfall["sign_pattern"], covered["sign_pattern"])
+        self.assertEqual(shortfall["free_cf"], -99)
+        self.assertEqual(shortfall["cash_change_before_fx"], -199)
+        self.assertFalse(shortfall["operating_cf_covers_investing_outflow"])
+        self.assertTrue(covered["operating_cf_covers_investing_outflow"])
+        self.assertNotIn("健全", shortfall["diagnosis"])
+
+    def test_cf_all_sign_patterns_and_zero(self):
+        patterns_seen = set()
+        for values in itertools.product([-10, 10], repeat=3):
+            result = financial.diagnose_cash_flow(*values)
+            patterns_seen.add(tuple(result["sign_pattern"]))
+            self.assertEqual(result["cash_change_before_fx"], sum(values))
+        self.assertEqual(len(patterns_seen), 8)
+        for values in [(0, 0, 0), (10, 0, -5), (10, -5, 0)]:
+            result = financial.diagnose_cash_flow(*values)
+            self.assertIn("zero", result["sign_pattern"])
+        with self.assertRaises(ValueError):
+            financial.diagnose_cash_flow(float("nan"), 1, 2)
+
+    def test_pattern_annotations_and_invalid_inputs(self):
+        for query, expected in [
+            ("2次面接（現場部長クラス）", "second-interview"),
+            ("２次面接（部長）", "second-interview"),
+            ("1次面接（人事）", "first-interview"),
+            ("最終面接（役員）", "final-interview"),
+            ("2", "first-interview"),  # Exact menu number, not an interview round.
+        ]:
+            with self.subTest(query=query):
+                self.assertEqual(patterns.resolve_pattern(query, patterns.STAGE_PATTERNS, "first-interview"), expected)
+        self.assertEqual(patterns.resolve_pattern("第二新卒（社会人2年目）", patterns.CANDIDATE_PATTERNS, "new-grad"), "second-new-grad")
+        with self.assertRaises(ValueError):
+            patterns.resolve_pattern("4次面接", patterns.STAGE_PATTERNS, "first-interview")
+        self.assertEqual(patterns.resolve_pattern("", patterns.ROLE_PATTERNS, "sales-cs"), "sales-cs")
+        for script in ["pattern_selector.py", "report_generator.py"]:
+            for query in ["存在しない職種", "エンジニア・コンサルタント"]:
+                with self.subTest(script=script, query=query):
+                    result = subprocess.run([sys.executable, str(SCRIPTS_DIR / script), "--role", query], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(result.stdout, "")
+                    self.assertNotIn("Traceback", result.stderr)
+
+    def test_readme_local_cli_examples(self):
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        count = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            for block in re.findall(r"```bash\n(.*?)```", readme, re.S):
+                for line in block.replace("\\\n", " ").splitlines():
+                    if not line.startswith("python3 scripts/"):
+                        continue
+                    command = shlex.split(line)
+                    command[0] = sys.executable
+                    if "--output" in command:
+                        command[command.index("--output") + 1] = str(Path(tmp) / "report.md")
+                    result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    count += 1
+        self.assertEqual(count, 4)
+
+    def test_marketplace_invalid_data_is_preserved(self):
+        for original in ['{"plugins": [', '[]', '{"name":"mine","plugins":{}}', '{"name":"mine","plugins":[null]}']:
+            with self.subTest(original=original), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "marketplace.json"
+                path.write_text(original, encoding="utf-8")
+                for check in [True, False]:
+                    with self.assertRaises(ValueError):
+                        marketplace.update_marketplace(path, Path(tmp) / "plugin", check)
+                    self.assertEqual(path.read_text(encoding="utf-8"), original)
+                    self.assertEqual(list(Path(tmp).iterdir()), [path])
+
+    def test_marketplace_preserves_other_plugins_and_backups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "marketplace.json"
+            original = '{"name":"mine","custom":true,"plugins":[{"name":"other","extra":1},{"name":"company-analysis"}]}'
+            path.write_text(original, encoding="utf-8")
+            plugin_dir = Path(tmp) / "custom-codex" / "plugins" / "company-analysis"
+            self.assertEqual(marketplace.update_marketplace(path, plugin_dir, True), "mine")
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+            self.assertEqual(list(Path(tmp).glob("*.bak")), [])
+            marketplace.update_marketplace(path, plugin_dir)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertTrue(data["custom"])
+            self.assertEqual(data["plugins"][0], {"name": "other", "extra": 1})
+            self.assertEqual(data["plugins"][1]["source"]["path"], str(plugin_dir.resolve()))
+            backups = list(Path(tmp).glob("*.bak"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(encoding="utf-8"), original)
+            marketplace.update_marketplace(path, plugin_dir)
+            self.assertEqual(len(list(Path(tmp).glob("*.bak"))), 2)
+            self.assertEqual(len(json.loads(path.read_text())["plugins"]), 2)
+
+    def test_marketplace_write_failure_preserves_original(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "marketplace.json"
+            original = '{"name":"mine","plugins":[{"name":"other"}]}'
+            path.write_text(original, encoding="utf-8")
+            with mock.patch.object(marketplace.os, "replace", side_effect=OSError("simulated failure")):
+                with self.assertRaises(OSError):
+                    marketplace.update_marketplace(path, Path(tmp) / "plugin")
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
+    def test_marketplace_can_be_created_without_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nested" / "marketplace.json"
+            marketplace.update_marketplace(path, Path(tmp) / "plugin", True)
+            self.assertFalse(path.parent.exists())
+            marketplace.update_marketplace(path, Path(tmp) / "plugin")
+            self.assertEqual(json.loads(path.read_text())["plugins"][0]["name"], "company-analysis")
+            self.assertEqual(list(path.parent.glob("*.bak")), [])
 
     def test_report_generator_modes(self):
         script = SCRIPTS_DIR / "report_generator.py"

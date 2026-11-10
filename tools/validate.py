@@ -184,8 +184,8 @@ def check_scripts() -> None:
         fail("scripts/ にPythonスクリプトがない")
         return
 
-    for script in scripts + [ROOT / "install.sh"]:
-        if not os.access(script, os.X_OK):
+    for script in scripts + [ROOT / "install.sh", ROOT / "tools" / "update_marketplace.py"]:
+        if script.parent != ROOT / "tools" and not os.access(script, os.X_OK):
             fail(f"{script.relative_to(ROOT)} に実行権限がない")
         if script.suffix == ".py":
             try:

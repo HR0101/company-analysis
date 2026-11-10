@@ -3,74 +3,72 @@
 Financial, Cash Flow & Human Capital Gap Analyzer for Company Analysis Skill.
 
 Computes and diagnoses:
-1. Profitability, Growth, Efficiency & Safety Ratios (with industry-aware commentary)
+1. Profitability, Growth, Efficiency & Safety Ratios
 2. Cash Flow 8-Pattern Diagnosis (営業CF × 投資CF × 財務CF)
 3. Employee Productivity (1人あたり売上高・営業利益)
-4. Human Capital & OpenWork Radar Gap Diagnosis (真のホワイト vs ゆるブラック vs 若手ハードワーク型)
+4. Human capital inputs and limited, score-based observations (not a workplace quality verdict)
 """
 
 import argparse
 import json
+import math
 import sys
 from typing import Dict, Optional
 
 
+# Signs describe flows, not the reasons for those flows or financial health.
 CF_PATTERNS = {
-    (True, False, False): {
-        "label": "【王道・優良成長型】営業CF(＋) / 投資CF(−) / 財務CF(−)",
-        "diagnosis": "本業で潤沢なキャッシュを稼ぎ、その範囲内で将来への設備・成長投資を行い、借入金返済や株主還元（配当・自社株買い）も進められている最も健全なキャッシュフロー構造です。",
-        "interview_tip": "『盤石な収益基盤（営業CF）を原資に、中期経営計画の〇〇領域へ継続投資できている点に安定性と成長性の両立を感じる』と志望動機で語ると説得力が増します。",
-    },
-    (True, False, True): {
-        "label": "【積極拡大・勝負投資型】営業CF(＋) / 投資CF(−) / 財務CF(＋)",
-        "diagnosis": "本業でしっかり稼ぎつつも、それ以上に大型M&Aや新工場・DX投資などの勝負に出るため、外部から資金調達（借入・社債・増資）を行ってアクセルを踏んでいるフェーズです。",
-        "interview_tip": "大型投資やM&Aの対象領域を特定し、『今まさに御社が社運を賭けて投資している〇〇領域の立ち上げ・PMIに貢献したい』と切り込むのが有効です。",
-    },
-    (True, True, False): {
-        "label": "【事業再編・選択と集中型】営業CF(＋) / 投資CF(＋) / 財務CF(−)",
-        "diagnosis": "本業で稼ぎつつ、非中核事業や保有資産・政策保有株を売却してキャッシュを作り、借入金の圧縮や株主還元・ポートフォリオ転換を進めている構造改革フェーズです。",
-        "interview_tip": "『ROIC経営や事業ポートフォリオの選択と集中を進め、高収益なコア事業へ経営資源を再配分している変革期』として捉え、逆質問で今後の注力領域を問うのが効果的です。",
-    },
-    (False, False, True): {
-        "label": "【先行投資・Jカーブ成長型】営業CF(−) / 投資CF(−) / 財務CF(＋)",
-        "diagnosis": "グロース期のスタートアップやSaaS企業に典型的な形で、ベンチャーキャピタルや市場からの資金調達（財務CF＋）を原資に、プロダクト開発と顧客獲得（S&M）へ先行投資してシェアを奪いに行っている状態です。",
-        "interview_tip": "黒字転換のタイムラインやARR成長率・ユニットエコノミクス（LTV/CAC）を確認し、『シェア拡大の勝負フェーズにおいて〇〇で成長を牽引したい』と語ると刺さります。",
-    },
-    (False, True, False): {
-        "label": "【リストラ・資産切り売り注意型】営業CF(−) / 投資CF(＋) / 財務CF(−)",
-        "diagnosis": "本業が赤字でキャッシュが流出する中、資産や事業の売却で得た資金で借入金を返済している状態です。一時的な特損要因か構造的な衰退かを慎重に見極める必要があります。",
-        "interview_tip": "有価証券報告書の『対処すべき課題』と再生計画を精査し、構造改革の具体策を確認してください。",
-    },
-    (False, True, True): {
-        "label": "【防衛・資金確保型】営業CF(−) / 投資CF(＋) / 財務CF(＋)",
-        "diagnosis": "本業のキャッシュ流出を補うため、資産売却と追加借入・増資の両方で手元流動性を確保している緊急度の高いフェーズです。",
-        "interview_tip": "直近の業績悪化が一過性（市況・特損等）か構造的かを決算説明資料で必ず確認してください。",
-    },
-    (True, True, True): {
-        "label": "【超大型案件待機・手元資金積み増し型】営業CF(＋) / 投資CF(＋) / 財務CF(＋)",
-        "diagnosis": "本業・資産売却・資金調達のすべてでキャッシュを積み上げており、近い将来の大型M&Aや巨額投資に備えて手元資金を厚くしているケースが多いです。",
-        "interview_tip": "中期経営計画のキャッシュアロケーションを確認し、積み上げた資金を今後どこへ投下する方針かを逆質問で聞くのが有効です。",
-    },
-    (False, False, False): {
-        "label": "【内部留保取り崩し・過渡期型】営業CF(−) / 投資CF(−) / 財務CF(−)",
-        "diagnosis": "過去に蓄積した豊富な現預金を取り崩して投資と返済・還元を行っている状態です。運転資本の期ズレ（売掛金・棚卸資産の一時的増加）で一時的に営業CFがマイナスになった優良企業でも発生します。",
-        "interview_tip": "単年だけでなく過去3〜5年の営業CF推移（IR BANK等）を確認し、一時的な運転資本増加かどうかを見極めてください。",
-    },
+    (True, False, False): ("営業流入・投資/財務流出型", "営業活動は資金流入、投資活動と財務活動は資金流出です。"),
+    (True, False, True): ("営業/財務流入・投資流出型", "営業活動と財務活動は資金流入、投資活動は資金流出です。"),
+    (True, True, False): ("営業/投資流入・財務流出型", "営業活動と投資活動は資金流入、財務活動は資金流出です。"),
+    (False, False, True): ("財務流入・営業/投資流出型", "財務活動は資金流入、営業活動と投資活動は資金流出です。"),
+    (False, True, False): ("投資流入・営業/財務流出型", "投資活動は資金流入、営業活動と財務活動は資金流出です。"),
+    (False, True, True): ("投資/財務流入・営業流出型", "投資活動と財務活動は資金流入、営業活動は資金流出です。"),
+    (True, True, True): ("全活動資金流入型", "営業・投資・財務の各活動で資金流入です。"),
+    (False, False, False): ("全活動資金流出型", "営業・投資・財務の各活動で資金流出です。"),
 }
 
 
 def diagnose_cash_flow(op_cf: float, inv_cf: float, fin_cf: float) -> dict:
-    key = (op_cf >= 0, inv_cf >= 0, fin_cf >= 0)
-    info = CF_PATTERNS[key]
+    values = (op_cf, inv_cf, fin_cf)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("CFは有限値で指定してください")
+    signs = tuple("＋" if value > 0 else "−" if value < 0 else "0" for value in values)
+    if 0 in values:
+        label = "ゼロCFを含む（符号8分類の対象外）"
+        diagnosis = "ゼロの活動には資金の純流入・純流出がなく、プラス/マイナスへ割り当てません。"
+    else:
+        label, diagnosis = CF_PATTERNS[tuple(value > 0 for value in values)]
     free_cf = op_cf + inv_cf
+    net_cf = sum(values)
+    covers_investment = None
+    amount_findings = []
+    if op_cf >= 0 and inv_cf < 0:
+        covers_investment = op_cf >= -inv_cf
+        amount_findings.append(
+            "営業CFで投資CFの純流出額を賄えています。" if covers_investment
+            else "営業CFだけでは投資CFの純流出額を賄えていません。"
+        )
+    if net_cf < 0:
+        amount_findings.append("3区分CFの合計は資金純流出です。期首現預金と今後の資金需要を確認してください。")
+    elif net_cf > 0:
+        amount_findings.append("3区分CFの合計は資金純流入です。各区分の内訳と継続性を確認してください。")
+    else:
+        amount_findings.append("3区分CFの合計はゼロです。各区分の内訳を確認してください。")
     return {
         "operating_cf": op_cf,
         "investing_cf": inv_cf,
         "financing_cf": fin_cf,
+        "sign_pattern": ["positive" if v > 0 else "negative" if v < 0 else "zero" for v in values],
         "free_cf": round(free_cf, 2),
-        "pattern_label": info["label"],
-        "diagnosis": info["diagnosis"],
-        "interview_tip": info["interview_tip"],
+        "cash_change_before_fx": round(net_cf, 2),
+        "operating_cf_covers_investing_outflow": covers_investment,
+        "pattern_label": f"【{label}】営業CF({signs[0]}) / 投資CF({signs[1]}) / 財務CF({signs[2]})",
+        "diagnosis": diagnosis,
+        "amount_findings": amount_findings,
+        "liquidity_assessment": "判定不能：期首・期末現預金、返済予定、過去の推移が未入力です。",
+        "limitations": "符号と金額だけでは投資・調達の目的や企業の健全性は断定できません。3区分CF合計は為替換算差額等を含まず、現預金の増減とは一致しない場合があります。",
+        "interview_tip": "CF計算書の内訳と複数年の推移を確認し、公式資料で確認できた投資・調達目的だけを志望動機や質問の根拠にしてください。",
     }
 
 
@@ -84,69 +82,53 @@ def diagnose_human_capital(
     ow_evaluation: Optional[float],
 ) -> dict:
     findings = []
-    archetype_label = "標準バランス型"
-
-    if avg_age is not None and avg_tenure is not None:
-        if avg_tenure >= 14.0 and avg_age >= 38.0:
-            findings.append(
-                f"平均年齢{avg_age}歳・平均勤続{avg_tenure}年：長期定着率が極めて高い安定組織です。一方で年功序列感や若手の抜擢機会について現場社員に確認すると解像度が上がります。"
-            )
-        elif avg_tenure <= 4.5 and avg_age <= 33.0:
-            findings.append(
-                f"平均年齢{avg_age}歳・平均勤続{avg_tenure}年：若手が主力で急拡大中の組織、または人材の流動性（入れ替わり）が激しい環境です。従業員数が毎年増加しているための勤続年数低下か、離職によるものかを過去3年の有報で照合してください。"
-            )
-        else:
-            findings.append(
-                f"平均年齢{avg_age}歳・平均勤続{avg_tenure}年：新陳代謝と定着のバランスが取れた組織構成です。"
-            )
-
+    for label, value, unit in [
+        ("平均年齢", avg_age, "歳"),
+        ("平均勤続年数", avg_tenure, "年"),
+        ("平均年間給与", avg_salary_man, "万円"),
+    ]:
+        if value is not None:
+            findings.append(f"{label}: {value}{unit}（入力値）。")
+    if avg_age is not None or avg_tenure is not None:
+        findings.append("平均年齢・勤続年数だけでは定着率や成長機会は判定できません。採用数・離職率・従業員数の推移を確認してください。")
     if avg_salary_man is not None:
-        if avg_salary_man >= 900:
-            findings.append(
-                f"平均年間給与 約{avg_salary_man:.0f}万円：国内トップクラスの高水準です（※持株会社単体の数字でないかだけ念のため確認してください）。"
-            )
-        elif avg_salary_man >= 650:
-            findings.append(f"平均年間給与 約{avg_salary_man:.0f}万円：上場企業平均を上回る良好な待遇水準です。")
-        else:
-            findings.append(
-                f"平均年間給与 約{avg_salary_man:.0f}万円：住宅手当・借上社宅等の福利厚生（有報に含まれない実質報酬）や昇給カーブをオファー面談等で確認すると安心です。"
-            )
+        findings.append("給与は対象年度・職種・単体/連結の範囲を揃えて比較してください。持株会社の数値かどうかも確認が必要です。")
 
-    if ow_overall is not None:
-        if (
-            ow_growth20s is not None
-            and ow_compliance is not None
-            and ow_growth20s >= 3.8
-            and ow_compliance < 3.0
-        ):
-            archetype_label = "【若手ハードワーク・早期成長特化型】"
-            findings.append(
-                "OpenWork診断：『20代成長環境』が突出して高い一方、コンプライアンスや長期育成が低めです。20代で圧倒的な裁量と市場価値を得る環境としては魅力的ですが、ハードワーク耐性が求められます。"
-            )
-        elif (
-            ow_growth20s is not None
-            and ow_compliance is not None
-            and ow_compliance >= 3.8
-            and ow_growth20s <= 2.7
-        ):
-            archetype_label = "【ゆるブラック（ぬるま湯・成長停滞）注意型】"
-            findings.append(
-                "OpenWork診断：法令順守や働きやすさは非常に高い一方、『20代成長環境』『人事評価の適正感』が低めです。ワークライフバランスは良好ですが、自ら主体的に動く部署を選ばないと市場価値が伸び悩む（いわゆる『ゆるブラック』）リスクに注意してください。"
-            )
-        elif ow_overall >= 3.6 and (ow_compliance is None or ow_compliance >= 3.3):
-            archetype_label = "【真のホワイト・高エンゲージメント優良型】"
-            findings.append(
-                f"OpenWork診断（総合{ow_overall}）：成長機会とコンプライアンス・待遇のバランスが高水準で両立している優良組織です。"
-            )
-        elif ow_overall < 2.9:
-            archetype_label = "【公式発表と現場体感のギャップ注意型】"
-            findings.append(
-                f"OpenWork診断（総合{ow_overall}）：現場の不満が蓄積している可能性があります。統合報告書や採用HPのアピールだけでなく、退職検討理由の共通項（評価制度・残業実態・部署間格差）を必ず点検してください。"
-            )
-
+    scores = {
+        "overall": ("総合評価", ow_overall),
+        "growth20s": ("20代成長環境", ow_growth20s),
+        "compliance": ("法令順守意識", ow_compliance),
+        "evaluation": ("人事評価の適正感", ow_evaluation),
+    }
+    provided = {key: value for key, (_, value) in scores.items() if value is not None}
+    missing = [label for label, value in scores.values() if value is None]
+    for label, value in scores.values():
+        if value is not None:
+            if not math.isfinite(value) or not 1 <= value <= 5:
+                raise ValueError(f"{label}は1〜5の有限値で指定してください")
+            band = "高め" if value >= 3.8 else "低め" if value <= 2.7 else "中間帯"
+            findings.append(f"口コミの{label}: {value}/5（参考区分: {band}）。")
+    if not provided:
+        archetype_label = "判定不能（口コミ指標未入力）"
+    elif missing:
+        archetype_label = "判定保留（口コミ指標不足）"
+        findings.append("未入力のため判定不能: " + "、".join(missing) + "。")
+    elif ow_growth20s >= 3.8 and ow_compliance < 3.0:
+        archetype_label = "成長環境と法令順守の評価差あり（要確認）"
+    elif ow_compliance >= 3.8 and ow_growth20s <= 2.7:
+        archetype_label = "法令順守と成長環境の評価差あり（要確認）"
+    elif ow_overall >= 3.6 and min(ow_growth20s, ow_compliance, ow_evaluation) >= 3.3:
+        archetype_label = "入力4指標が相対的に高め（要確認）"
+    else:
+        archetype_label = "入力4指標を個別確認（企業全体の良否は判定不能）"
+    if provided:
+        findings.append("参考区分は便宜的なしきい値（高め3.8以上、低め2.7以下）です。投稿件数・時期・職種・部署の偏りを確認し、口コミを未検証の傾向として扱ってください。")
     return {
         "organization_archetype": archetype_label,
+        "provided_scores": provided,
+        "missing_scores": missing,
         "findings": findings,
+        "limitations": "待遇・労働時間・長期育成や企業全体の健全性は、入力された口コミ評価だけでは判定できません。公式情報とのギャップは同一時期・対象範囲の資料を別途照合してください。",
     }
 
 
@@ -287,7 +269,11 @@ def format_markdown(result: dict) -> str:
             "## 2. キャッシュフロー8パターン診断",
             f"- **営業CF**: `{cf['operating_cf']} 億円` / **投資CF**: `{cf['investing_cf']} 億円` / **財務CF**: `{cf['financing_cf']} 億円` （**FCF**: `{cf['free_cf']} 億円`）",
             f"- **診断タイプ**: **{cf['pattern_label']}**",
-            f"- **経営状態の解釈**: {cf['diagnosis']}",
+            f"- **資金の流入/流出**: {cf['diagnosis']}",
+            f"- **3区分CF合計（為替換算差額等を除く）**: `{cf['cash_change_before_fx']} 億円`",
+            *[f"- {finding}" for finding in cf['amount_findings']],
+            f"- **資金繰りの健全性**: {cf['liquidity_assessment']}",
+            f"- **判定の限界**: {cf['limitations']}",
             f"- **🎯 面接・志望動機での活用法**: {cf['interview_tip']}",
         ])
 
@@ -300,6 +286,7 @@ def format_markdown(result: dict) -> str:
         ])
         for f in hc["findings"]:
             lines.append(f"- {f}")
+        lines.append(f"- **判定の限界**: {hc['limitations']}")
 
     return "\n".join(lines) + "\n"
 
@@ -330,7 +317,10 @@ def main():
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
 
     args = parser.parse_args()
-    res = analyze_financials(args)
+    try:
+        res = analyze_financials(args)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.format == "json":
         print(json.dumps(res, ensure_ascii=False, indent=2))
     else:

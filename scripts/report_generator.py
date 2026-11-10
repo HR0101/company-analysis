@@ -133,8 +133,8 @@ def generate_full_report(bp: dict) -> str:
 ## 6. 組織文化・人的資本ギャップ診断（統合報告書 × OpenWork突合）
 - **企業理念（VMV）・カルチャーデックの要点**: 
 - **公式開示データ（有給取得率・残業時間・離職率・女性管理職比率等）**: 
-- **現場口コミ（OpenWork等）の8指標チャート形状と本音**: 
-- **ギャップ検証結果（真のホワイト度・配属ガチャリスク・確認事項）**: 
+- **入力済みの口コミ指標・投稿時期・件数・職種/部署**:
+- **確認済みの違い・未検証の仮説・追加確認事項**:
 
 ---
 
@@ -243,11 +243,14 @@ def main():
 
     args = parser.parse_args()
 
-    ind_key = resolve_pattern(args.industry, INDUSTRY_PATTERNS, "it-saas-web")
-    role_key = resolve_pattern(args.role, ROLE_PATTERNS, "sales-cs")
-    stage_key = resolve_pattern(args.stage, STAGE_PATTERNS, "first-interview")
-    cand_key = resolve_pattern(args.candidate, CANDIDATE_PATTERNS, "new-grad")
-    arch_key = resolve_pattern(args.archetype, ARCHETYPE_PATTERNS, "listed-enterprise")
+    try:
+        ind_key = resolve_pattern(args.industry, INDUSTRY_PATTERNS, "it-saas-web")
+        role_key = resolve_pattern(args.role, ROLE_PATTERNS, "sales-cs")
+        stage_key = resolve_pattern(args.stage, STAGE_PATTERNS, "first-interview")
+        cand_key = resolve_pattern(args.candidate, CANDIDATE_PATTERNS, "new-grad")
+        arch_key = resolve_pattern(args.archetype, ARCHETYPE_PATTERNS, "listed-enterprise")
+    except ValueError as exc:
+        parser.error(str(exc))
     comps = [c.strip() for c in args.competitors.split(",") if c.strip()]
 
     bp = build_blueprint(
