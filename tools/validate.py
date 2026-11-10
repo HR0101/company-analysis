@@ -164,9 +164,12 @@ def check_skill_dirs_and_parity() -> None:
         "references/role-patterns.md",
         "references/interview-stage-patterns.md",
         "references/output-templates.md",
+        "references/input-ui.md",
+        "references/self-introduction.md",
         "scripts/pattern_selector.py",
         "scripts/financial_analyzer.py",
         "scripts/report_generator.py",
+        "scripts/input_ui.py",
     ]
     for rel in rel_files:
         base_text = (ROOT_SKILL_DIR / rel).read_text(encoding="utf-8")

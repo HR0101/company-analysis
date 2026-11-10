@@ -13,7 +13,9 @@ Generates structured Markdown templates / worksheets tailored to the chosen:
 
 import argparse
 from pathlib import Path
+import re
 import sys
+import unicodedata
 
 # Ensure sibling import works regardless of current working directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -28,7 +30,75 @@ from pattern_selector import (
 )
 
 
-def generate_full_report(bp: dict) -> str:
+DEFAULT_QUESTION_COUNTS = {"full": 100, "cheatsheet": 100}
+
+QUESTION_THEMES = [
+    "希望職種のミッション", "事業戦略・投資", "顧客・競争優位", "仕事の進め方・裁量",
+    "チーム・部署間の連携", "成果・評価制度", "育成・キャリア", "組織文化・価値観",
+    "働き方・支援制度", "入社後の期待・立ち上がり",
+]
+QUESTION_ANGLES = [
+    "{theme}について、現在特に大切にされている目標は何でしょうか？",
+    "{theme}の現状が分かる具体的な事例を教えていただけますか？",
+    "{theme}を進める上で、現場で難しさを感じる点は何でしょうか？",
+    "{theme}で複数の選択肢があるとき、どのような基準で優先順位を決めますか？",
+    "{theme}の改善や進捗を、どのような指標・情報から判断されていますか？",
+    "{theme}で関係者の意見が異なる場合、どのように合意をつくりますか？",
+    "{theme}について、これまでの経験から見直した取り組みはありますか？",
+    "{theme}に関して、今後変えていきたいことはありますか？",
+    "{theme}に関して、社員からの提案を取り入れる機会はどのように設けられていますか？",
+    "{theme}について、新しく入社する人が事前に理解しておくとよいことは何でしょうか？",
+]
+
+
+def parse_question_count(value):
+    if value is None or value in ("auto", "標準", "おまかせ"):
+        return "auto"
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ValueError("逆質問の件数は0以上の整数で指定してください")
+    text = unicodedata.normalize("NFKC", str(value)).strip()
+    if text in ("不要", "不要(0問)"):
+        return 0
+    if not re.fullmatch(r"[0-9]+(?:問)?", text):
+        raise ValueError("逆質問の件数は0以上の整数で指定してください（例: 7、7問）")
+    return int(text.removesuffix("問"))
+
+
+def resolve_question_count(value, mode):
+    count = parse_question_count(value)
+    return DEFAULT_QUESTION_COUNTS[mode] if count == "auto" else count
+
+
+def reverse_question_list(bp, count):
+    """Make worksheet slots; company-specific evidence is filled in by the skill."""
+    grouped = [[angle.format(theme=theme) for angle in QUESTION_ANGLES] for theme in QUESTION_THEMES]
+    for i, question in enumerate(bp["step3_role_analysis"]["role_reverse_questions"][:2]):
+        grouped[0][i] = question
+    if count >= 100:
+        entries = [(theme, q) for theme, group in zip(QUESTION_THEMES, grouped) for q in group]
+    else:
+        entries = [(theme, group[i]) for i in range(10) for theme, group in zip(QUESTION_THEMES, grouped)]
+    questions = [f"【{theme}】{question}" for theme, question in entries]
+    while len(questions) < count:
+        questions.append(f"【追加テーマ{len(questions) + 1}の確認済み事実】＋【重複しない現場仮説】＋【この面接官に確認する問い】を記入。")
+    return "\n".join(f"{i}. 「{question}」" for i, question in enumerate(questions[:count], 1))
+
+
+def self_introduction_section(text=None, heading="### ③"):
+    if text is None:
+        body = (
+            "（会話履歴・提供済みの経歴資料で確認できる所属、経験・実績、強みをもとに、"
+            "約1分・250〜350字を目安とする自己紹介原稿を記入。氏名・経歴・数値を創作しない。"
+            "情報不足なら必要な点だけ確認する。）"
+        )
+    else:
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("自己紹介原稿は空でない文字列で指定してください")
+        body = text.strip()
+    return f"{heading} 自己紹介（約1分）\n{body}"
+
+
+def generate_full_report(bp: dict, reverse_question_count=None, self_introduction=None) -> str:
     company = bp["target_company"]
     comps = bp["competitors"]
     comp_a = comps[0] if len(comps) > 0 else "競合A社"
@@ -53,9 +123,11 @@ def generate_full_report(bp: dict) -> str:
     pass_strats = "\n".join(
         [f"- {s}" for s in stage["pass_strategy"]]
     )
-    rev_qs = "\n".join(
-        [f"{i+1}. 「{q}」" for i, q in enumerate(role["role_reverse_questions"])]
-    )
+    count = resolve_question_count(reverse_question_count, "full")
+    reverse_section = (
+        f"### ⑤ 仮説検証型・逆質問リスト（{count}問：一次情報の事実＋現場仮説＋問い）\n"
+        + reverse_question_list(bp, count)
+    ) if count else ""
 
     return f"""# 📊 【企業分析＆選考突破マスターシート】{company}
 
@@ -148,31 +220,41 @@ def generate_full_report(bp: dict) -> str:
 ### ② 突破のための具体的戦術
 {pass_strats}
 
-### ③ 志望動機ドラフト（結論ファースト・1分話せる350字版）
+{self_introduction_section(self_introduction)}
+
+### ④ 志望動機ドラフト（結論ファースト・1分話せる350字版）
 1. **成し遂げたい軸（結論）**: 
 2. **原体験・背景**: 
 3. **なぜこの業界×なぜ{company}か（競合比較）**: 
 4. **なぜ{sp['role']['name']}か×入社後の貢献（再現性）**: 
 
-### ④ 仮説検証型・逆質問リスト（【一次情報の事実】＋【現場仮説】＋【問い】）
-{rev_qs}
-3. 「有価証券報告書（または中期経営計画・決算説明資料）にて〇〇と拝見しました（事実）。それに伴い現場では△△という変化や課題が生じているのではないかと仮説立てていますが、現在どのような取り組みに注力されていますか？（問い）」
+{reverse_section}
 """
 
 
-def generate_cheatsheet(bp: dict) -> str:
+def generate_cheatsheet(bp: dict, reverse_question_count=None, self_introduction=None) -> str:
     company = bp["target_company"]
     comps = bp["competitors"]
     comp_a = comps[0] if len(comps) > 0 else "競合A社"
     sp = bp["selected_patterns"]
     role = bp["step3_role_analysis"]
     stage = bp["step4_stage_strategy"]
+    count = resolve_question_count(reverse_question_count, "cheatsheet")
+    question_heading = "## 付録. テーマ別の逆質問集" if count >= 100 else "## 3. 面接で確認したい逆質問"
+    reverse_section = (
+        f"{question_heading}（{count}問）\n" + reverse_question_list(bp, count)
+    ) if count else ""
+    priority_section = "## 3. 当日優先する質問\n（付録から面接官に合う質問番号を3〜5件選び、理由を記入。）\n\n---\n\n" if count >= 100 else ""
 
     return f"""# ⚡ 【面接直前5分チートシート】{company} × {sp['stage']['name']}
 
 - **志望職種**: {sp['role']['name']} / **区分**: {sp['candidate']['name']}
 - **今日の面接官**: **{stage['interviewer_persona']}**
 - **今日の最重要ゴール**: **{stage['core_objective']}**
+
+---
+
+{self_introduction_section(self_introduction, "## 0.")}
 
 ---
 
@@ -189,10 +271,7 @@ def generate_cheatsheet(bp: dict) -> str:
 
 ---
 
-## 3. 今日そのまま使えるキラー逆質問3選
-1. 「{role['role_reverse_questions'][0]}」
-2. 「{role['role_reverse_questions'][1]}」
-3. 「直近の決算説明資料（または中期経営計画）で〇〇への注力を拝見しましたが、今まさに現場で一番大きなチャレンジとなっているテーマは何でしょうか？」
+{priority_section}{reverse_section}
 """
 
 
@@ -240,6 +319,8 @@ def main():
         help="Report mode: full, cheatsheet, or offer-comparison",
     )
     parser.add_argument("--output", default="", help="Optional file path to save the generated Markdown")
+    parser.add_argument("--reverse-question-count", default="auto", help="逆質問の件数。0で省略、未指定は100問（full / cheatsheet共通）")
+    parser.add_argument("--self-introduction-file", type=Path, help="会話履歴から作成した約1分の自己紹介原稿（UTF-8）。未指定は記入欄のみ")
 
     args = parser.parse_args()
 
@@ -251,6 +332,23 @@ def main():
         arch_key = resolve_pattern(args.archetype, ARCHETYPE_PATTERNS, "listed-enterprise")
     except ValueError as exc:
         parser.error(str(exc))
+    try:
+        question_count = parse_question_count(args.reverse_question_count)
+    except ValueError as exc:
+        parser.error(str(exc))
+    offer_report = args.mode != "cheatsheet" and (args.mode == "offer-comparison" or stage_key == "offer-comparison")
+    if offer_report and question_count != "auto":
+        parser.error("--reverse-question-countはフル版・チートシート向けです。内定比較の確認質問とは別に扱います")
+    if offer_report and args.self_introduction_file:
+        parser.error("--self-introduction-fileはフル版・チートシート向けです")
+    self_introduction = None
+    if args.self_introduction_file:
+        try:
+            self_introduction = args.self_introduction_file.read_text(encoding="utf-8").strip()
+            if not self_introduction:
+                raise ValueError("自己紹介原稿が空です")
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
     comps = [c.strip() for c in args.competitors.split(",") if c.strip()]
 
     bp = build_blueprint(
@@ -264,11 +362,11 @@ def main():
     )
 
     if args.mode == "cheatsheet":
-        md = generate_cheatsheet(bp)
+        md = generate_cheatsheet(bp, question_count, self_introduction)
     elif args.mode == "offer-comparison" or stage_key == "offer-comparison":
         md = generate_offer_comparison(bp)
     else:
-        md = generate_full_report(bp)
+        md = generate_full_report(bp, question_count, self_introduction)
 
     if args.output:
         out_path = Path(args.output)

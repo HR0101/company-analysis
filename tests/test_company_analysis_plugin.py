@@ -39,6 +39,8 @@ def load_module(name, path):
 financial = load_module("financial", SCRIPTS_DIR / "financial_analyzer.py")
 patterns = load_module("patterns", SCRIPTS_DIR / "pattern_selector.py")
 marketplace = load_module("marketplace", REPO_ROOT / "tools" / "update_marketplace.py")
+input_ui = load_module("input_ui", SCRIPTS_DIR / "input_ui.py")
+reports = load_module("reports", SCRIPTS_DIR / "report_generator.py")
 
 
 class TestCompanyAnalysisPlugin(unittest.TestCase):
@@ -318,7 +320,203 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
                     result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     count += 1
-        self.assertEqual(count, 4)
+        self.assertEqual(count, 5)
+
+    def test_intake_initial_questions_accept_free_text(self):
+        result = input_ui.prepare_intake({})
+        self.assertEqual(result["tool"], "request_user_input_async")
+        self.assertEqual([b["field"] for b in result["bindings"]], ["company", "purpose"])
+        self.assertNotIn("options", result["arguments"]["questions"][0])
+        self.assertEqual(len(result["arguments"]["questions"][1]["options"]), 3)
+
+    def test_intake_research_does_not_ask_recruitment_questions(self):
+        result = input_ui.prepare_intake({"company": "対象企業", "purpose": "research"})
+        self.assertEqual([b["field"] for b in result["bindings"]], ["industry", "archetype"])
+        ready = input_ui.prepare_intake({**result["state"], "industry": "auto", "archetype": "auto"})
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(ready["configuration"]["output_mode"], "research")
+        self.assertEqual(ready["unresolved_axes"], ["industry", "archetype"])
+        self.assertEqual(input_ui.normalize_state({"industry": "おまかせ"})["industry"], "auto")
+
+    def test_intake_only_requests_missing_fields(self):
+        state = {"company": "対象企業", "purpose": "selection", "industry": "IT",
+                 "role": "エンジニア", "stage": "2次面接", "candidate": "中途"}
+        result = input_ui.prepare_intake(state)
+        self.assertEqual([b["field"] for b in result["bindings"]], ["archetype", "output_mode"])
+        self.assertEqual(result["state"]["role"], "software-ai-engineer")
+        self.assertEqual(result["state"]["stage"], "second-interview")
+
+    def test_intake_standard_choice_tree_covers_every_option(self):
+        # Walk every branch to ensure a restricted UI can reach all canonical IDs,
+        # including singleton leaves, without ever emitting a one-option question.
+        for field, catalog in input_ui.CATALOGS.items():
+            reached = set()
+            state = {"company": "対象企業", "purpose": "selection", "industry": "auto",
+                     "role": "auto", "stage": "auto", "candidate": "auto",
+                     "archetype": "auto", "output_mode": "full", "reverse_question_count": 5}
+            state.pop(field)
+            queue = [state]
+            while queue:
+                branch = queue.pop()
+                result = input_ui.prepare_intake(branch, "standard")
+                if result["status"] == "ready":
+                    reached.add(result["configuration"][field])
+                    continue
+                # Selecting offer-comparison reroutes to the offer workflow.
+                if result["state"].get("purpose") == "offer":
+                    reached.add(result["state"][field])
+                    continue
+                questions = result["arguments"]["questions"]
+                self.assertLessEqual(len(questions), 3)
+                self.assertEqual(len(questions), 1)
+                self.assertGreaterEqual(len(questions[0]["options"]), 2)
+                self.assertLessEqual(len(questions[0]["options"]), 3)
+                for update in result["bindings"][0]["updates"].values():
+                    queue.append({**result["state"], **update})
+            self.assertEqual(reached, set(catalog) | {"auto"}, field)
+
+    def test_intake_offer_routes_to_comparison(self):
+        state = {"company": "第一志望社", "purpose": "offer", "industry": "auto",
+                 "role": "software-ai-engineer", "candidate": "mid-career", "archetype": "auto"}
+        result = input_ui.prepare_intake(state)
+        self.assertEqual([b["field"] for b in result["bindings"]], ["competitors"])
+        ready = input_ui.prepare_intake({**state, "competitors": "比較A社,比較B社"})
+        self.assertEqual(ready["configuration"]["stage"], "offer-comparison")
+        self.assertEqual(ready["configuration"]["output_mode"], "offer-comparison")
+
+    def test_intake_text_fallback_and_state_validation(self):
+        for ui in ("standard", "text"):
+            result = input_ui.prepare_intake({}, ui)
+            self.assertEqual(len(result["text_questions"]), 1 if ui == "standard" else 2)
+        result = input_ui.prepare_intake({"company": "対象企業", "purpose": "research"}, "text")
+        self.assertIsNone(result["tool"])
+        self.assertIsNone(result["arguments"])
+        self.assertEqual(len(result["text_questions"]), 2)
+        for state in [[], {"purpose": "invalid"}, {"industry": "存在しない業界"},
+                      {"candidate": 123}, {"industry_choices": ["unknown"]}]:
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                input_ui.prepare_intake(state)
+
+    def test_intake_cancellation_does_not_fill_unanswered_values(self):
+        state = {"company": "対象企業", "purpose": "selection", "role": ""}
+        first = input_ui.prepare_intake(state)
+        second = input_ui.prepare_intake(first["state"])
+        self.assertEqual(first, second)
+        self.assertNotIn("role", second["state"])
+        self.assertEqual(second["status"], "collecting")
+
+    def test_intake_question_count_is_selected_after_output_mode(self):
+        state = {"company": "対象企業", "purpose": "selection", "industry": "auto",
+                 "role": "software-ai-engineer", "stage": "second-interview",
+                 "candidate": "mid-career", "archetype": "auto"}
+        result = input_ui.prepare_intake(state)
+        self.assertEqual([b["field"] for b in result["bindings"]], ["output_mode"])
+        result = input_ui.prepare_intake({**state, "output_mode": "full"})
+        self.assertEqual([b["field"] for b in result["bindings"]], ["reverse_question_count"])
+        self.assertEqual(result["bindings"][0]["updates"]["10問"], {"reverse_question_count": 10})
+        for mode, default in [("full", 100), ("cheatsheet", 100)]:
+            for value, expected in [("標準", default), ("7問", 7), (10, 10), ("不要（0問）", 0)]:
+                with self.subTest(mode=mode, value=value):
+                    ready = input_ui.prepare_intake({**state, "output_mode": mode, "reverse_question_count": value})
+                    self.assertEqual(ready["configuration"]["reverse_question_count"], expected)
+
+    def test_intake_standard_question_count_options_and_custom_input(self):
+        base = {"company": "対象企業", "purpose": "selection", "industry": "auto",
+                "role": "auto", "stage": "first-interview", "candidate": "new-grad",
+                "archetype": "auto", "output_mode": "full"}
+        queue, reached = [base], set()
+        while queue:
+            result = input_ui.prepare_intake(queue.pop(), "standard")
+            if result["status"] == "ready":
+                reached.add(result["configuration"]["reverse_question_count"])
+                continue
+            question = result["arguments"]["questions"][0]
+            self.assertGreaterEqual(len(question["options"]), 2)
+            self.assertLessEqual(len(question["options"]), 3)
+            for updates in result["bindings"][0]["updates"].values():
+                queue.append({**result["state"], **updates})
+        self.assertEqual(reached, {0, 3, 5, 10, 100})
+        for invalid in [-1, True, 2.5, "たくさん", "5.5", "-3問"]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                input_ui.prepare_intake({**base, "reverse_question_count": invalid})
+        research = input_ui.prepare_intake({"company": "対象企業", "purpose": "research",
+                                           "industry": "auto", "archetype": "auto", "reverse_question_count": 10})
+        self.assertNotIn("reverse_question_count", research["configuration"])
+
+    def test_report_question_count_matches_ui_configuration(self):
+        base = {"company": "対象企業", "purpose": "selection", "industry": "it-saas-web",
+                "role": "software-ai-engineer", "stage": "second-interview",
+                "candidate": "mid-career", "archetype": "listed-enterprise"}
+        for mode in ["full", "cheatsheet"]:
+            for count in ["auto", 0, 1, 3, 5, 7, 10, 12, 100]:
+                with self.subTest(mode=mode, count=count):
+                    ready = input_ui.prepare_intake({**base, "output_mode": mode, "reverse_question_count": count})
+                    expected = ready["configuration"]["reverse_question_count"]
+                    command = [sys.executable, str(SCRIPTS_DIR / "report_generator.py"), "--mode", mode]
+                    if count != "auto":
+                        command.extend(["--reverse-question-count", str(expected)])
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    heading = re.search(r"^#{2,3} .*逆質問.*$", result.stdout, re.M)
+                    if expected == 0:
+                        self.assertIsNone(heading)
+                        continue
+                    self.assertIsNotNone(heading)
+                    section = result.stdout[heading.end():]
+                    numbers = re.findall(r"^(\d+)\. ", section, re.M)
+                    self.assertEqual(numbers, [str(i) for i in range(1, expected + 1)])
+        for invalid in ["-1", "2.5"]:
+            result = subprocess.run([sys.executable, str(SCRIPTS_DIR / "report_generator.py"),
+                                     "--reverse-question-count", invalid], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+
+    def test_default_question_bank_has_100_distinct_questions_per_role(self):
+        for role in patterns.ROLE_PATTERNS:
+            bp = patterns.build_blueprint("対象企業", "it-saas-web", role, "first-interview",
+                                          "new-grad", "listed-enterprise", [])
+            output = reports.reverse_question_list(bp, 100)
+            questions = re.findall(r"^\d+\. 「(.*)」$", output, re.M)
+            self.assertEqual(len(questions), 100)
+            self.assertEqual(len(set(questions)), 100)
+            self.assertNotIn("を記入", output)
+            for theme in reports.QUESTION_THEMES:
+                self.assertEqual(sum(q.startswith(f"【{theme}】") for q in questions), 10)
+
+    def test_self_introduction_is_separate_from_motivation(self):
+        bp = patterns.build_blueprint("対象企業", "it-saas-web", "software-ai-engineer",
+                                      "first-interview", "new-grad", "listed-enterprise", [])
+        draft = "本日はお時間をいただきありがとうございます。大学で画像処理を研究しています。研究で検証を重ねた経験を生かし、開発に貢献したいと考えています。よろしくお願いいたします。"
+        for generate in (reports.generate_full_report, reports.generate_cheatsheet):
+            output = generate(bp, 0, draft)
+            self.assertEqual(output.count(draft), 1)
+            intro_heading = re.search(r"^#{2,3} .*自己紹介（約1分）", output, re.M)
+            motivation_heading = re.search(r"^#{2,3} .*志望動機", output, re.M)
+            self.assertLess(intro_heading.start(), motivation_heading.start())
+            self.assertIn("自己紹介（約1分）", generate(bp, 0))
+        with self.assertRaises(ValueError):
+            reports.self_introduction_section("")
+
+    def test_self_introduction_file_is_included_and_invalid_files_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = str(SCRIPTS_DIR / "report_generator.py")
+            path = Path(tmp) / "intro.txt"
+            draft = "本日はありがとうございます。大学で研究に取り組んでいます。よろしくお願いいたします。"
+            path.write_text(draft, encoding="utf-8")
+            for mode in ("full", "cheatsheet"):
+                result = subprocess.run([sys.executable, script, "--mode", mode,
+                                         "--self-introduction-file", str(path),
+                                         "--reverse-question-count", "0"], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.count(draft), 1)
+            path.write_text("  \n", encoding="utf-8")
+            for invalid in (path, Path(tmp) / "missing.txt"):
+                result = subprocess.run([sys.executable, script, "--self-introduction-file", str(invalid)],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+            offer = subprocess.run([sys.executable, script, "--mode", "offer-comparison"],
+                                    capture_output=True, text=True)
+            self.assertNotIn("自己紹介", offer.stdout)
 
     def test_marketplace_invalid_data_is_preserved(self):
         for original in ['{"plugins": [', '[]', '{"name":"mine","plugins":{}}', '{"name":"mine","plugins":[null]}']:
