@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""プラグインとスキルの定義ファイルおよび同梱スクリプトを検証する．
+"""Codex / Claude 両対応のプラグインとスキルの定義ファイルおよび同梱スクリプトを検証する．
 
 公開・配布前に次を確認する．
 
 - plugin.json，.codex-plugin/plugin.json，.agents/plugins/marketplace.json，
   .claude-plugin/plugin.json，.claude-plugin/marketplace.json がJSONとして妥当であること
+- .claude-plugin/icon.png が存在すること
 - 必須フィールドが存在し，プラグイン名・文字数制限・参照アセットパスがすべて整合すること
 - ルート，skills/company-analysis/，plugins/company-analysis/skills/company-analysis/ の
   SKILL.md・agents/openai.yaml・references/・scripts/ が完全一致していること
+- dist/company-analysis-skill.zip が存在し，skills/company-analysis/ の内容と完全一致していること
 - SKILL.md のフロントマターに name と description があり，禁止文字（<, >）や未完成の TODO がないこと
 - スキル内のすべての Markdown から張った相対リンクの先が実在すること
 - 同梱スクリプトに実行権限があり，構文エラーがないこと
-- pattern_selector.py，financial_analyzer.py，report_generator.py が全パターン・全モードで正常動作すること
+- input_ui.py，pattern_selector.py，financial_analyzer.py，report_generator.py が全パターン・全モードで正常動作すること
 
 使い方:
     python3 tools/validate.py
@@ -27,6 +29,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -35,6 +38,7 @@ ROOT_SKILL_DIR = ROOT
 SUB_SKILL_DIR = ROOT / "skills" / SKILL_NAME
 PLUGIN_DIR = ROOT / "plugins" / SKILL_NAME
 PLUGIN_SKILL_DIR = PLUGIN_DIR / "skills" / SKILL_NAME
+DIST_ZIP = ROOT / "dist" / f"{SKILL_NAME}-skill.zip"
 
 errors: list[str] = []
 warnings: list[str] = []
@@ -94,6 +98,9 @@ def check_manifests() -> None:
         for req in ("version", "description"):
             if not data.get(req):
                 fail(f"{p.relative_to(ROOT)} に {req} がない")
+
+    if not (ROOT / "assets" / "icon.png").exists():
+        fail("assets/icon.png が存在しない")
 
     # Verify OpenAI interface constraints on portable and codex manifests
     portable = load_json(PLUGIN_DIR / "plugin.json")
@@ -180,6 +187,21 @@ def check_skill_dirs_and_parity() -> None:
             elif other_path.read_text(encoding="utf-8") != base_text:
                 fail(f"{other_path.relative_to(ROOT)} の内容がルートの {rel} と一致しない")
 
+    if not DIST_ZIP.exists():
+        fail(f"{DIST_ZIP.relative_to(ROOT)} が存在しない")
+    else:
+        with zipfile.ZipFile(DIST_ZIP, "r") as zf:
+            names = set(zf.namelist())
+            for rel in rel_files:
+                arcname = f"{SKILL_NAME}/{rel}"
+                if arcname not in names:
+                    fail(f"{DIST_ZIP.relative_to(ROOT)} に {arcname} が含まれていない")
+                else:
+                    disk_text = (SUB_SKILL_DIR / rel).read_text(encoding="utf-8")
+                    zip_text = zf.read(arcname).decode("utf-8")
+                    if disk_text != zip_text:
+                        fail(f"{DIST_ZIP.relative_to(ROOT)} 内の {arcname} が最新ファイルと一致しない")
+
 
 def check_scripts() -> None:
     scripts = list((SUB_SKILL_DIR / "scripts").glob("*.py"))
@@ -187,19 +209,31 @@ def check_scripts() -> None:
         fail("scripts/ にPythonスクリプトがない")
         return
 
-    for script in scripts + [ROOT / "install.sh", ROOT / "tools" / "update_marketplace.py"]:
-        if script.parent != ROOT / "tools" and not os.access(script, os.X_OK):
-            fail(f"{script.relative_to(ROOT)} に実行権限がない")
-        if script.suffix == ".py":
-            try:
-                py_compile.compile(str(script), doraise=True)
-            except py_compile.PyCompileError as exc:
-                fail(f"{script.relative_to(ROOT)} に構文エラー: {exc}")
+    with tempfile.TemporaryDirectory() as pyc_tmp:
+        for script in scripts + [ROOT / "install.sh", ROOT / "tools" / "update_marketplace.py", ROOT / "tools" / "build_dist_zip.py"]:
+            if script.parent != ROOT / "tools" and not os.access(script, os.X_OK):
+                fail(f"{script.relative_to(ROOT)} に実行権限がない")
+            if script.suffix == ".py":
+                try:
+                    cfile = Path(pyc_tmp) / f"{script.stem}.pyc"
+                    py_compile.compile(str(script), cfile=str(cfile), doraise=True)
+                except py_compile.PyCompileError as exc:
+                    fail(f"{script.relative_to(ROOT)} に構文エラー: {exc}")
 
-    # Functional tests of the 3 scripts
+    # Functional tests of the scripts
     ps = SUB_SKILL_DIR / "scripts" / "pattern_selector.py"
     fa = SUB_SKILL_DIR / "scripts" / "financial_analyzer.py"
     rg = SUB_SKILL_DIR / "scripts" / "report_generator.py"
+    ui = SUB_SKILL_DIR / "scripts" / "input_ui.py"
+
+    for ui_mode in ("async", "standard", "text"):
+        r0 = subprocess.run(
+            [sys.executable, str(ui), "--ui", ui_mode],
+            capture_output=True,
+            text=True,
+        )
+        if r0.returncode != 0:
+            fail(f"input_ui.py --ui {ui_mode} が失敗: {r0.stderr}")
 
     r1 = subprocess.run(
         [sys.executable, str(ps), "--list", "--format", "json"],
@@ -277,7 +311,7 @@ def main() -> int:
         print(f"\n検証失敗: {len(errors)} 件のエラーがあります．", file=sys.stderr)
         return 1
 
-    print("[OK] すべてのマニフェスト・スキル定義・リンク・スクリプト検証に合格しました．")
+    print("[OK] すべてのマニフェスト（Codex & Claude）・スキル定義・ZIP・リンク・スクリプト検証に合格しました．")
     return 0
 
 

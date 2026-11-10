@@ -1,11 +1,23 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "company-analysis",
   "version": "1.1.1",
-  "description": "業界別・希望職種別・選考フェーズ（何次面接か）別の5軸パターンから選択して、一次情報（有報・中計・決算説明資料・統合報告書・採用ピッチ資料）と口コミ突合に基づく徹底的な企業分析・競合比較・志望動機・仮説検証型逆質問を作成するスキルプラグイン。",
+  "description": "業界別・希望職種別・選考フェーズ（ES・1次面接・2次面接・最終面接・オファー比較）別・新卒/中途別の5軸パターンから選択して、一次情報（有報・中計・決算説明資料・統合報告書・採用ピッチ資料）と口コミ突合に基づく徹底的な企業分析・競合比較・約1分の自己紹介・志望動機・仮説検証型逆質問（標準10問）・想定質問（標準100問）を作成するCodex / Claude両対応スキルプラグイン。",
   "author": {
     "name": "HR0101",
     "url": "https://github.com/HR0101"
   },
-  "repository": "https://github.com/HR0101/company-analysis-codex",
-  "license": "MIT"
+  "homepage": "https://github.com/HR0101/company-analysis",
+  "repository": "https://github.com/HR0101/company-analysis",
+  "license": "MIT",
+  "icon": "./assets/icon.png",
+  "keywords": [
+    "company-analysis",
+    "industry-research",
+    "interview-prep",
+    "financial-analysis",
+    "career",
+    "japanese",
+    "agent-skills"
+  ]
 }

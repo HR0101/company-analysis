@@ -1,13 +1,13 @@
 {
   "name": "company-analysis",
   "version": "1.1.1",
-  "description": "ネットで体系化した企業分析の秘訣（有価証券報告書・決算説明資料・中期経営計画・統合報告書・採用ピッチ資料・口コミ突合）をもとに、業界別・希望職種別・選考フェーズ（何次面接か）別・新卒/中途別の5軸パターンから選択して徹底的な企業分析と選考対策（競合比較・志望動機・仮説検証型逆質問）を行うCodexスキルプラグイン。",
+  "description": "ネットで体系化した企業分析の秘訣（有価証券報告書・決算説明資料・中期経営計画・統合報告書・採用ピッチ資料・口コミ突合）をもとに、業界別・希望職種別・選考フェーズ（何次面接か）別・新卒/中途別の5軸パターンから選択して徹底的な企業分析と選考対策（競合比較・自己紹介・志望動機・仮説検証型逆質問・想定質問100問）を行うCodex / Claude両対応スキルプラグイン。",
   "author": {
     "name": "HR0101",
     "url": "https://github.com/HR0101"
   },
-  "homepage": "https://github.com/HR0101/company-analysis-codex",
-  "repository": "https://github.com/HR0101/company-analysis-codex",
+  "homepage": "https://github.com/HR0101/company-analysis",
+  "repository": "https://github.com/HR0101/company-analysis",
   "license": "MIT",
   "keywords": [
     "company-analysis",
@@ -15,6 +15,8 @@
     "interview-prep",
     "financial-analysis",
     "career",
+    "codex",
+    "claude-code",
     "企業分析",
     "企業研究",
     "業界研究",
@@ -26,7 +28,7 @@
   "interface": {
     "displayName": "企業分析＆選考対策マスター",
     "shortDescription": "業界・職種・面接別の徹底企業分析",
-    "longDescription": "一次情報（有報・決算説明資料・中期経営計画・統合報告書・採用ピッチ資料）と現場口コミ（OpenWork等）の突合メソッドを搭載。8大業界×6大職種×6選考フェーズ（カジュアル面談・ES・1次・2次・最終・内定比較）×新卒/中途×企業タイプのパターンから選択し、競合比較マトリクス、財務・CF診断、再現性のある志望動機、面接官の役職に刺さる仮説検証型逆質問を一気通貫で生成します。",
+    "longDescription": "一次情報（有報・決算説明資料・中期経営計画・統合報告書・採用ピッチ資料）と現場口コミ（OpenWork等）の突合メソッドを搭載。8大業界×6大職種×6選考フェーズ（カジュアル面談・ES・1次・2次・最終・内定比較）×新卒/中途×企業タイプのパターンから選択し、競合比較マトリクス、財務・CF診断、約1分の自己紹介、再現性のある志望動機、仮説検証型逆質問（標準10問）、想定質問（標準100問）を一気通貫で生成します。",
     "developerName": "HR0101",
     "category": "Productivity",
     "capabilities": [
@@ -34,7 +36,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/HR0101/company-analysis-codex",
+    "websiteURL": "https://github.com/HR0101/company-analysis",
     "defaultPrompt": [
       "入力UIで企業名・目的・業界・職種・面接フェーズを選び、企業分析を始めたい",
       "有価証券報告書や中期経営計画の観点で競合他社と比較し、なぜ御社かの志望動機を作って",

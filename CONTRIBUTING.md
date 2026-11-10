@@ -1,14 +1,19 @@
 # コントリビューションガイド (Contributing)
 
-`company-analysis-codex` への改善提案・Issue・Pull Request を歓迎します。
+`company-analysis` への改善提案・Issue・Pull Request を歓迎します。
 
 ## 変更手順
 
 1. このリポジトリをフォークしてブランチを作成してください。
-2. スキル定義（`SKILL.md`、`agents/openai.yaml`、`references/`、`scripts/`）を編集する場合は、以下の3箇所が同一内容になるよう同期してください（`$skill-installer` がシンボリックリンクを禁止しているため実ファイルで保持しています）：
+2. スキル定義（`SKILL.md`、`agents/openai.yaml`、`references/`、`scripts/`）を編集する場合は、以下の3箇所が同一内容になるよう同期し、さらに `dist/company-analysis-skill.zip` を再生成してください：
    - リポジトリルート（`./SKILL.md`, `./references/`, `./scripts/`, `./agents/`）
    - `./skills/company-analysis/`
    - `./plugins/company-analysis/skills/company-analysis/`
+
+```bash
+python3 tools/build_dist_zip.py
+```
+
 3. 変更後、以下の検証スクリプトとテストスイートを実行してすべて合格することを確認してください：
 
 ```bash

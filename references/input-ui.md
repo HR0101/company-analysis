@@ -1,18 +1,25 @@
-# 入力UI：ホストの質問ツールを使う
+# 入力UI：ホストの質問ツールを使う（Codex / Claude 両対応）
 
-このスキルは、実行環境が提供する質問UIを呼び出して条件を集める。独自のウィンドウやWebフォーム、MCPサーバーを起動する機能ではない。表示形式はホストが決める。
+このスキルは、実行環境が提供する質問UI（Codex の `request_user_input_async` / `request_user_input`、または Claude Code の `AskUserQuestion`）を呼び出して条件を集める。独自のウィンドウやWebフォーム、MCPサーバーを起動する機能ではない。表示形式はホストが決める。
 
 ## 起動とツール選択
 
-「入力UIで始めたい」「項目を選んで分析したい」、または対象企業・分析目的が未指定のままスキルを起動した場合は、以下の入力フローを開始する。企業研究・選考対策の既存の依頼から分かる条件を先にstateへ入れ、同じ内容を再質問しない。
+「入力UIで始めたい」「項目を選んで分析したい」、または対象企業・分析目的が未指定のままスキルを起動した場合は、以下の入力フローを開始する。企業研究・選考対策の既存の依頼から分かる条件を先に `state` へ入れ、同じ内容を再質問しない。
 
-1. 現在のツール一覧とモード制約を確認する。`request_user_input_async` が利用可能なら `--ui async`、それがなく `request_user_input` を現在のモードで呼べるなら `--ui standard` を使う。名前空間の接頭辞は実環境のものを使う。
-2. どちらも利用できなければ `--ui text` に切り替える。UIを出すためにモードを変更したり、アプリを操作・再設定したりしない。スキルの文章だけでツールを追加することはできない。
+1. 現在のツール一覧とモード制約を確認する。
+   - **Codex で `request_user_input_async` が利用可能な場合**: `--ui async` を使う。
+   - **Codex で `request_user_input` が利用可能な場合**: `--ui standard` を使う。
+   - **Claude Code で `AskUserQuestion` が利用可能な場合**: `--ui standard` を使う。返された `arguments.questions` の各要素（`header`, `question`, `options`）に `multiSelect: false` を添えて `AskUserQuestion` を呼び出す。
+   - 名前空間の接頭辞は実環境のものを使う。
+2. いずれも利用できなければ `--ui text` に切り替える。UIを出すためにモードを変更したり、アプリを操作・再設定したりしない。スキルの文章だけでツールを追加することはできない。
 3. `scripts/input_ui.py` をこのスキルのディレクトリ基準で実行する。スクリプトのJSON出力そのものは入力画面ではない。返された `arguments` を使って、実際の質問ツールを呼び出す。
 
 ```bash
-# 条件未指定で起動。企業名と目的を尋ねるための引数を生成する
+# 条件未指定で起動。企業名と目的を尋ねるための引数を生成する（Codex async 例）
 python3 scripts/input_ui.py --ui async
+
+# Claude Code (AskUserQuestion) や選択肢数制限ありUIの場合
+python3 scripts/input_ui.py --ui standard
 
 # 会話で判明している条件を引き継ぎ、残りの項目だけを尋ねる
 python3 scripts/input_ui.py --ui async \
@@ -40,7 +47,7 @@ python3 scripts/input_ui.py --ui async \
 ## 回答の反映
 
 - 一度に最大3問を出す。後続の項目が回答に依存するときは、その回答後に次の質問を出す。
-- `arguments` 以外の内部フィールドを質問ツールに渡さない。`async` では質問と `bindings` を順番で、`standard` では質問の `id` と `bindings.field` で対応づける。
+- `arguments` 以外の内部フィールドを質問ツールに渡さない。`async` では質問と `bindings` を順番で、`standard`（`AskUserQuestion` 含む）では質問の `id` / `header` と `bindings.field` で対応づける。
 - 選択結果のラベルに対応する `bindings.updates` を前の `state` にマージする。例：「ソフトウェア・AI・データ」を選んだら `role: software-ai-engineer` を設定する。画面内の位置や番号をパターンIDとして使わない。
 - 自由入力は `bindings.field` へ保存する。候補外の入力・自由記述も尊重し、既存のパターンIDへ対応できない内容を無理に既定値へ変えない。必要な部分だけ短く確認する。
 - 逆質問（応募者から企業への質問）の件数は `reverse_question_count`、想定質問（企業・面接官から応募者への質問）の件数は `interview_question_count` に保存する。標準はそれぞれ10問・100問。質問文でも方向と標準件数を明示し、片方の回答で両方を更新しない。
@@ -62,5 +69,3 @@ python3 scripts/input_ui.py --ui async \
 ## 対応範囲
 
 質問UIの有無や制約は、アプリ・CLI・バージョン・実行モードに依存する。`agents/openai.yaml` は表示名や起動プロンプトを設定するもので、入力フォームの定義先ではない。独自フォームを一画面に固定表示したい場合は、別途MCPのフォーム機能またはMCP Apps UIが必要。
-
-仕様の背景：[Skills](https://learn.chatgpt.com/docs/build-skills)、[質問・フォーム要求](https://learn.chatgpt.com/docs/app-server#toolrequestuserinput)。

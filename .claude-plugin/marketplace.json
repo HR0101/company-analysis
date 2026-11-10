@@ -1,15 +1,34 @@
 {
-  "name": "company-analysis-codex",
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "company-analysis",
   "owner": {
     "name": "HR0101",
     "url": "https://github.com/HR0101"
   },
+  "metadata": {
+    "description": "業界・希望職種・何次面接か（選考フェーズ）のパターンから選んで一次情報に基づく企業分析と選考対策を行うCodex / Claude両対応スキル＆プラグイン",
+    "version": "1.1.1"
+  },
   "plugins": [
     {
       "name": "company-analysis",
-      "description": "業界・希望職種・何次面接かを選んで徹底的に企業分析と選考対策を行うスキルプラグイン",
-      "version": "1.0.0",
-      "source": "./"
+      "source": "./",
+      "version": "1.1.1",
+      "description": "一次情報（有価証券報告書・決算説明資料・中期経営計画・統合報告書・採用ピッチ資料）と口コミ突合メソッドに基づき、8大業界×6大職種×6選考フェーズ×新卒/中途×企業タイプの5軸から選んで企業研究・IR分析・競合比較・自己紹介・志望動機・逆質問10問・想定質問100問を作成する。",
+      "author": {
+        "name": "HR0101"
+      },
+      "homepage": "https://github.com/HR0101/company-analysis",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "company-analysis",
+        "industry-research",
+        "interview-prep",
+        "financial-analysis",
+        "career",
+        "japanese"
+      ]
     }
   ]
 }
