@@ -16,7 +16,10 @@ from pattern_selector import (
     ARCHETYPE_PATTERNS, CANDIDATE_PATTERNS, INDUSTRY_PATTERNS,
     ROLE_PATTERNS, STAGE_PATTERNS, resolve_pattern,
 )
-from report_generator import DEFAULT_QUESTION_COUNTS, parse_question_count, resolve_question_count
+from report_generator import (
+    DEFAULT_QUESTION_COUNTS, DEFAULT_INTERVIEW_QUESTION_COUNTS,
+    parse_question_count, resolve_question_count, resolve_interview_question_count,
+)
 
 
 CATALOGS = {
@@ -31,6 +34,7 @@ LABELS = {
     "role": "希望職種", "stage": "選考フェーズ", "candidate": "応募区分",
     "archetype": "企業タイプ", "output_mode": "出力形式", "competitors": "比較企業",
     "reverse_question_count": "逆質問の件数",
+    "interview_question_count": "想定質問の件数",
 }
 PURPOSES = {
     "research": "企業研究・IR・競合比較",
@@ -56,12 +60,15 @@ SHORT_NAMES = {
     "startup-unlisted": "未上場スタートアップ", "foreign-affiliated": "外資系",
 }
 AUTO_LABEL = "おまかせ・未定"
-CHOICE_FIELDS = set(CATALOGS) | {"reverse_question_count"}
+COUNT_FIELDS = {"reverse_question_count", "interview_question_count"}
+CHOICE_FIELDS = set(CATALOGS) | COUNT_FIELDS
 
 
 def options_for(field):
     if field == "reverse_question_count":
-        return [("auto", "標準"), (3, "3問"), (5, "5問"), (10, "10問"), (100, "100問"), (0, "不要（0問）")]
+        return [("auto", "標準"), (3, "3問"), (5, "5問"), (10, "10問"), (0, "不要（0問）")]
+    if field == "interview_question_count":
+        return [("auto", "標準"), (10, "10問"), (50, "50問"), (100, "100問"), (0, "不要（0問）")]
     if field == "purpose":
         return list(PURPOSES.items())
     if field == "output_mode":
@@ -85,7 +92,7 @@ def normalize_state(state):
                 raise ValueError(f"{field}の選択肢が不正です")
             normalized[field] = list(dict.fromkeys(value))
             continue
-        if field == "reverse_question_count":
+        if field in COUNT_FIELDS:
             if value == "":
                 continue
             normalized[field] = parse_question_count(value)
@@ -131,7 +138,7 @@ def pending_fields(state):
     if state["purpose"] == "offer":
         fields.insert(0, "competitors")
     if state["purpose"] == "selection" and "output_mode" in state:
-        fields.append("reverse_question_count")
+        fields.extend(["reverse_question_count", "interview_question_count"])
     return [field for field in fields if field not in state]
 
 
@@ -145,8 +152,11 @@ def prepare_intake(state, ui="async"):
         if configuration["purpose"] == "selection":
             configuration["reverse_question_count"] = resolve_question_count(
                 configuration["reverse_question_count"], configuration["output_mode"])
+            configuration["interview_question_count"] = resolve_interview_question_count(
+                configuration["interview_question_count"], configuration["output_mode"])
         else:
-            configuration.pop("reverse_question_count", None)
+            for field in COUNT_FIELDS:
+                configuration.pop(field, None)
         return {"status": "ready", "configuration": configuration,
                 "unresolved_axes": [k for k in CATALOGS if configuration.get(k) == "auto"]}
 
@@ -155,7 +165,10 @@ def prepare_intake(state, ui="async"):
         title = f"{LABELS[field]}を選んでください。"
         if field == "reverse_question_count":
             default_count = DEFAULT_QUESTION_COUNTS[state["output_mode"]]
-            title = f"逆質問は何問生成しますか？標準は{default_count}問です。自由入力で7問なども指定できます。"
+            title = f"応募者から企業への逆質問は何問生成しますか？標準は{default_count}問です。自由入力もできます。"
+        if field == "interview_question_count":
+            default_count = DEFAULT_INTERVIEW_QUESTION_COUNTS[state["output_mode"]]
+            title = f"企業・面接官から応募者への想定質問は何問生成しますか？標準は{default_count}問です。自由入力もできます。"
         if field in ("company", "competitors"):
             title = ("分析する企業名または業界名を入力してください。" if field == "company"
                      else "比較する内定先の企業名を入力してください。未定なら「おまかせ」と入力できます。")

@@ -30,7 +30,8 @@ from pattern_selector import (
 )
 
 
-DEFAULT_QUESTION_COUNTS = {"full": 100, "cheatsheet": 100}
+DEFAULT_QUESTION_COUNTS = {"full": 10, "cheatsheet": 10}
+DEFAULT_INTERVIEW_QUESTION_COUNTS = {"full": 100, "cheatsheet": 100}
 
 QUESTION_THEMES = [
     "希望職種のミッション", "事業戦略・投資", "顧客・競争優位", "仕事の進め方・裁量",
@@ -55,18 +56,164 @@ def parse_question_count(value):
     if value is None or value in ("auto", "標準", "おまかせ"):
         return "auto"
     if isinstance(value, bool) or not isinstance(value, (str, int)):
-        raise ValueError("逆質問の件数は0以上の整数で指定してください")
+        raise ValueError("質問の件数は0以上の整数で指定してください")
     text = unicodedata.normalize("NFKC", str(value)).strip()
     if text in ("不要", "不要(0問)"):
         return 0
     if not re.fullmatch(r"[0-9]+(?:問)?", text):
-        raise ValueError("逆質問の件数は0以上の整数で指定してください（例: 7、7問）")
+        raise ValueError("質問の件数は0以上の整数で指定してください（例: 7、7問）")
     return int(text.removesuffix("問"))
 
 
 def resolve_question_count(value, mode):
     count = parse_question_count(value)
     return DEFAULT_QUESTION_COUNTS[mode] if count == "auto" else count
+
+
+def resolve_interview_question_count(value, mode):
+    count = parse_question_count(value)
+    return DEFAULT_INTERVIEW_QUESTION_COUNTS[mode] if count == "auto" else count
+
+
+INTERVIEW_QUESTIONS = {
+    "経歴・自己紹介": [
+        "1分程度で自己紹介をお願いします。",
+        "これまでの経験のうち、今回の応募に最も関連するものを教えてください。",
+        "現在取り組んでいる仕事・研究・学習の内容を、専門外の人にも分かるように説明してください。",
+        "ご自身の強みを具体的な経験とともに教えてください。",
+        "ご自身の課題や弱みと、それに対する取り組みを教えてください。",
+        "周囲からどのような人だと評価されていますか？",
+        "これまでの経験に共通する、ご自身らしい行動を教えてください。",
+        "所属組織やチームの中で、どのような役割を担ってきましたか？",
+        "経歴の中で方向性を変えた経験があれば、その背景を教えてください。",
+        "応募書類に書ききれなかった、ご自身について伝えたいことはありますか？",
+    ],
+    "志望動機・企業理解": [
+        "当社を志望する理由を教えてください。",
+        "なぜこの業界に関心を持ったのですか？",
+        "同業他社と比べて、当社のどの点に魅力を感じていますか？",
+        "当社の主な顧客と提供価値をどのように理解していますか？",
+        "当社の収益構造について、ご自身の言葉で説明してください。",
+        "当社の事業やサービスで、特に関心のあるものは何ですか？",
+        "当社の直近の取り組みの中で、印象に残ったものを教えてください。",
+        "当社が今後向き合うべき課題を、根拠とともに教えてください。",
+        "当社の理念や価値観と、ご自身の経験が重なる点はありますか？",
+        "当社への理解を深めるために、どのような情報を調べましたか？",
+    ],
+    "希望職種・専門性": [
+        "なぜ{role}を希望しているのですか？",
+        "{role}で期待される役割をどのように理解していますか？",
+        "この職種に生かせる専門知識やスキルを、経験とともに説明してください。",
+        "得意な業務や領域と、今後学ぶ必要がある領域を教えてください。",
+        "専門的な課題を解決する際、どのように情報を集めますか？",
+        "複数の手法や技術から一つを選んだ経験と、その判断理由を教えてください。",
+        "ご自身の専門性を、顧客や事業の価値にどうつなげられますか？",
+        "品質・納期・コストが両立しないとき、どのように判断しますか？",
+        "専門外の人と仕事を進める際、説明や認識合わせで工夫していることは何ですか？",
+        "この職種の変化に対応するため、最近学んでいることを教えてください。",
+    ],
+    "成果・課題解決": [
+        "これまでに最も力を入れて取り組んだことを教えてください。",
+        "その取り組みでは、どのような目標を設定しましたか？",
+        "課題を特定した根拠やデータを教えてください。",
+        "その取り組みで、ご自身が担当した範囲を明確にしてください。",
+        "他の選択肢ではなく、その方法を選んだ理由は何ですか？",
+        "実行する中で最も大きかった障害と、乗り越え方を教えてください。",
+        "成果はどのように測定・確認しましたか？",
+        "チームの成果と、ご自身の貢献を分けて説明してください。",
+        "その成果を、別の環境でも再現するために必要な条件は何ですか？",
+        "同じ取り組みをもう一度行うなら、どこを改善しますか？",
+    ],
+    "協働・リーダーシップ": [
+        "チームで成果を出した経験を教えてください。",
+        "意見が対立した場面で、どのように対応しましたか？",
+        "立場の異なる関係者と合意をつくった経験はありますか？",
+        "役職や権限がない中で、周囲に働きかけた経験を教えてください。",
+        "相手から協力を得るために、どのような準備をしましたか？",
+        "チームの進捗が遅れているとき、ご自身ならどのように動きますか？",
+        "他の人に仕事を任せるとき、何を共有し、何を確認しますか？",
+        "他者からのフィードバックを受けて行動を変えた経験を教えてください。",
+        "他者を支援・育成した経験があれば、工夫したことを教えてください。",
+        "チームの目標と自分の目標が異なるとき、どのように調整しますか？",
+    ],
+    "失敗・学習": [
+        "これまでの失敗経験と、そこから学んだことを教えてください。",
+        "期待された結果に届かなかったとき、どのように原因を調べましたか？",
+        "自分の判断が誤っていたと気づいた経験はありますか？",
+        "問題を周囲に報告するタイミングを、どのように判断していますか？",
+        "同じ失敗を繰り返さないために、仕組みを変えた経験を教えてください。",
+        "未経験の課題に取り組むとき、最初に何をしますか？",
+        "短期間で新しい知識やスキルを身につけた経験を教えてください。",
+        "学んだことを実践して、結果を確かめた経験はありますか？",
+        "困ったときに自分で調べる範囲と、人に相談する範囲をどう分けますか？",
+        "最近、ご自身の考え方が変わった出来事を教えてください。",
+    ],
+    "価値観・判断": [
+        "仕事や研究を進める上で大切にしている価値観を教えてください。",
+        "難しい判断を求められたとき、何を基準に決めますか？",
+        "情報が不足した状況で意思決定した経験を教えてください。",
+        "短期の成果と長期の価値が衝突したら、どう考えますか？",
+        "顧客や相手の要望を、そのまま受け入れない方がよいと判断した経験はありますか？",
+        "期限が迫る中で品質上の懸念を見つけたら、どう対応しますか？",
+        "ルールや倫理と成果が衝突する場面で、どのように行動しますか？",
+        "ご自身がやりがいを感じるのは、どのような場面ですか？",
+        "苦手な環境でも成果を出すために、どのような工夫をしますか？",
+        "周囲と価値観が異なるとき、どのように相互理解を図りますか？",
+    ],
+    "進路・環境選び": [
+        "次の環境を選ぶ上で、最も重視している条件は何ですか？",
+        "今回、応募を決めたきっかけを教えてください。",
+        "これまでの進路や仕事の選択に、一貫する考え方はありますか？",
+        "これまでの環境で得たものと、次の環境で実現したいことを教えてください。",
+        "今回の選択で、妥協できることとできないことは何ですか？",
+        "他にどのような業界や職種を検討していますか？",
+        "複数の企業から内定が出た場合、どのような基準で判断しますか？",
+        "当社への志望度と、その理由を率直に教えてください。",
+        "入社前に確認しておきたい不安や懸念はありますか？",
+        "新しい環境に移ることで、ご自身が変えたいことは何ですか？",
+    ],
+    "働き方・適応": [
+        "複数の業務や課題が重なったとき、どのように優先順位をつけますか？",
+        "自分の進捗や課題を周囲に共有する際、工夫していることは何ですか？",
+        "状況や方針が途中で変わった経験と、その対応を教えてください。",
+        "指示が曖昧な課題に取り組むとき、どのように認識を合わせますか？",
+        "遠隔での協働や、会えない相手とのやり取りで気をつけていることは何ですか？",
+        "成果を出すために、周囲からどのような支援があるとよいですか？",
+        "負荷が高いとき、ご自身の状態をどのように把握・調整しますか？",
+        "単調な作業や地道な改善を継続した経験を教えてください。",
+        "自分の担当範囲外の問題に気づいたら、どのように動きますか？",
+        "新しいチームに入ったとき、最初に意識していることを教えてください。",
+    ],
+    "入社後の貢献・将来像": [
+        "当社に入社したら、まずどのようなことに取り組みたいですか？",
+        "入社後の半年間で、どのような状態を目指しますか？",
+        "当社の課題に対して、ご自身の経験をどう生かせると考えていますか？",
+        "入社後に学び直す必要があることは何だと考えていますか？",
+        "希望と異なる業務を任された場合、どのように向き合いますか？",
+        "仕事の成果を出すために、最初に誰とどのような関係をつくりたいですか？",
+        "3年後、どのような専門性や役割を持っていたいですか？",
+        "5〜10年後のキャリアをどのように考えていますか？",
+        "当社の成長と、ご自身のキャリアをどうつなげたいですか？",
+        "最後に、採用担当者へ伝えておきたいことはありますか？",
+    ],
+}
+
+
+def interview_question_list(bp, count):
+    """Questions asked by an interviewer; do not invent the applicant's answers."""
+    grouped = [(theme, [q.format(role=bp["selected_patterns"]["role"]["name"]) for q in questions])
+               for theme, questions in INTERVIEW_QUESTIONS.items()]
+    stage = bp["selected_patterns"]["stage"]["id"]
+    priority = {"second-interview": "希望職種・専門性", "final-interview": "志望動機・企業理解"}.get(stage)
+    if priority:
+        grouped.sort(key=lambda entry: entry[0] != priority)
+    if count >= 100:
+        entries = [(theme, q) for theme, questions in grouped for q in questions]
+    else:
+        entries = [(theme, questions[i]) for i in range(10) for theme, questions in grouped]
+    while len(entries) < count:
+        entries.append(("追加の深掘り", f"【想定質問{len(entries) + 1}：経歴や募集要件に応じた深掘りを記入】"))
+    return "\n".join(f"{i}. 【{theme}】「{question}」" for i, (theme, question) in enumerate(entries[:count], 1))
 
 
 def reverse_question_list(bp, count):
@@ -98,7 +245,8 @@ def self_introduction_section(text=None, heading="### ③"):
     return f"{heading} 自己紹介（約1分）\n{body}"
 
 
-def generate_full_report(bp: dict, reverse_question_count=None, self_introduction=None) -> str:
+def generate_full_report(bp: dict, reverse_question_count=None, self_introduction=None,
+                         interview_question_count=None) -> str:
     company = bp["target_company"]
     comps = bp["competitors"]
     comp_a = comps[0] if len(comps) > 0 else "競合A社"
@@ -124,8 +272,13 @@ def generate_full_report(bp: dict, reverse_question_count=None, self_introductio
         [f"- {s}" for s in stage["pass_strategy"]]
     )
     count = resolve_question_count(reverse_question_count, "full")
+    interview_count = resolve_interview_question_count(interview_question_count, "full")
+    interview_section = (
+        f"### ⑤ 企業・面接官から応募者への想定質問（{interview_count}問）\n"
+        + interview_question_list(bp, interview_count)
+    ) if interview_count else ""
     reverse_section = (
-        f"### ⑤ 仮説検証型・逆質問リスト（{count}問：一次情報の事実＋現場仮説＋問い）\n"
+        f"### ⑥ 応募者から企業への逆質問（{count}問：一次情報の事実＋現場仮説＋問い）\n"
         + reverse_question_list(bp, count)
     ) if count else ""
 
@@ -228,11 +381,14 @@ def generate_full_report(bp: dict, reverse_question_count=None, self_introductio
 3. **なぜこの業界×なぜ{company}か（競合比較）**: 
 4. **なぜ{sp['role']['name']}か×入社後の貢献（再現性）**: 
 
+{interview_section}
+
 {reverse_section}
 """
 
 
-def generate_cheatsheet(bp: dict, reverse_question_count=None, self_introduction=None) -> str:
+def generate_cheatsheet(bp: dict, reverse_question_count=None, self_introduction=None,
+                        interview_question_count=None) -> str:
     company = bp["target_company"]
     comps = bp["competitors"]
     comp_a = comps[0] if len(comps) > 0 else "競合A社"
@@ -240,11 +396,20 @@ def generate_cheatsheet(bp: dict, reverse_question_count=None, self_introduction
     role = bp["step3_role_analysis"]
     stage = bp["step4_stage_strategy"]
     count = resolve_question_count(reverse_question_count, "cheatsheet")
-    question_heading = "## 付録. テーマ別の逆質問集" if count >= 100 else "## 3. 面接で確認したい逆質問"
+    interview_count = resolve_interview_question_count(interview_question_count, "cheatsheet")
+    interview_section = (
+        f"## 付録A. 企業・面接官から応募者への想定質問（{interview_count}問）\n"
+        + interview_question_list(bp, interview_count) + "\n\n"
+    ) if interview_count else ""
     reverse_section = (
-        f"{question_heading}（{count}問）\n" + reverse_question_list(bp, count)
+        f"## 付録B. 応募者から企業への逆質問（{count}問）\n" + reverse_question_list(bp, count)
     ) if count else ""
-    priority_section = "## 3. 当日優先する質問\n（付録から面接官に合う質問番号を3〜5件選び、理由を記入。）\n\n---\n\n" if count >= 100 else ""
+    priorities = []
+    if interview_count:
+        priorities.append("- 想定質問集から、回答を最優先で準備する質問番号と回答骨子を記入。")
+    if count:
+        priorities.append("- 逆質問集から、当日企業に確認する質問番号と選定理由を記入。")
+    priority_section = "## 3. 当日の重点\n" + "\n".join(priorities) + "\n\n---\n\n" if priorities else ""
 
     return f"""# ⚡ 【面接直前5分チートシート】{company} × {sp['stage']['name']}
 
@@ -271,7 +436,7 @@ def generate_cheatsheet(bp: dict, reverse_question_count=None, self_introduction
 
 ---
 
-{priority_section}{reverse_section}
+{priority_section}{interview_section}{reverse_section}
 """
 
 
@@ -319,7 +484,8 @@ def main():
         help="Report mode: full, cheatsheet, or offer-comparison",
     )
     parser.add_argument("--output", default="", help="Optional file path to save the generated Markdown")
-    parser.add_argument("--reverse-question-count", default="auto", help="逆質問の件数。0で省略、未指定は100問（full / cheatsheet共通）")
+    parser.add_argument("--reverse-question-count", default="auto", help="応募者から企業への逆質問の件数。0で省略、未指定は10問")
+    parser.add_argument("--interview-question-count", default="auto", help="企業・面接官から応募者への想定質問の件数。0で省略、未指定は100問")
     parser.add_argument("--self-introduction-file", type=Path, help="会話履歴から作成した約1分の自己紹介原稿（UTF-8）。未指定は記入欄のみ")
 
     args = parser.parse_args()
@@ -334,11 +500,14 @@ def main():
         parser.error(str(exc))
     try:
         question_count = parse_question_count(args.reverse_question_count)
+        interview_count = parse_question_count(args.interview_question_count)
     except ValueError as exc:
         parser.error(str(exc))
     offer_report = args.mode != "cheatsheet" and (args.mode == "offer-comparison" or stage_key == "offer-comparison")
     if offer_report and question_count != "auto":
         parser.error("--reverse-question-countはフル版・チートシート向けです。内定比較の確認質問とは別に扱います")
+    if offer_report and interview_count != "auto":
+        parser.error("--interview-question-countはフル版・チートシート向けです")
     if offer_report and args.self_introduction_file:
         parser.error("--self-introduction-fileはフル版・チートシート向けです")
     self_introduction = None
@@ -362,11 +531,11 @@ def main():
     )
 
     if args.mode == "cheatsheet":
-        md = generate_cheatsheet(bp, question_count, self_introduction)
+        md = generate_cheatsheet(bp, question_count, self_introduction, interview_count)
     elif args.mode == "offer-comparison" or stage_key == "offer-comparison":
         md = generate_offer_comparison(bp)
     else:
-        md = generate_full_report(bp, question_count, self_introduction)
+        md = generate_full_report(bp, question_count, self_introduction, interview_count)
 
     if args.output:
         out_path = Path(args.output)

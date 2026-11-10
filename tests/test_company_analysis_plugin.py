@@ -353,7 +353,8 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
             reached = set()
             state = {"company": "対象企業", "purpose": "selection", "industry": "auto",
                      "role": "auto", "stage": "auto", "candidate": "auto",
-                     "archetype": "auto", "output_mode": "full", "reverse_question_count": 5}
+                     "archetype": "auto", "output_mode": "full", "reverse_question_count": 5,
+                     "interview_question_count": 100}
             state.pop(field)
             queue = [state]
             while queue:
@@ -412,47 +413,60 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
         result = input_ui.prepare_intake(state)
         self.assertEqual([b["field"] for b in result["bindings"]], ["output_mode"])
         result = input_ui.prepare_intake({**state, "output_mode": "full"})
-        self.assertEqual([b["field"] for b in result["bindings"]], ["reverse_question_count"])
+        self.assertEqual([b["field"] for b in result["bindings"]], ["reverse_question_count", "interview_question_count"])
         self.assertEqual(result["bindings"][0]["updates"]["10問"], {"reverse_question_count": 10})
-        for mode, default in [("full", 100), ("cheatsheet", 100)]:
+        for mode, default in [("full", 10), ("cheatsheet", 10)]:
             for value, expected in [("標準", default), ("7問", 7), (10, 10), ("不要（0問）", 0)]:
                 with self.subTest(mode=mode, value=value):
-                    ready = input_ui.prepare_intake({**state, "output_mode": mode, "reverse_question_count": value})
+                    ready = input_ui.prepare_intake({**state, "output_mode": mode, "reverse_question_count": value,
+                                                     "interview_question_count": "auto"})
                     self.assertEqual(ready["configuration"]["reverse_question_count"], expected)
+                    self.assertEqual(ready["configuration"]["interview_question_count"], 100)
 
     def test_intake_standard_question_count_options_and_custom_input(self):
         base = {"company": "対象企業", "purpose": "selection", "industry": "auto",
                 "role": "auto", "stage": "first-interview", "candidate": "new-grad",
-                "archetype": "auto", "output_mode": "full"}
-        queue, reached = [base], set()
-        while queue:
-            result = input_ui.prepare_intake(queue.pop(), "standard")
-            if result["status"] == "ready":
-                reached.add(result["configuration"]["reverse_question_count"])
-                continue
-            question = result["arguments"]["questions"][0]
-            self.assertGreaterEqual(len(question["options"]), 2)
-            self.assertLessEqual(len(question["options"]), 3)
-            for updates in result["bindings"][0]["updates"].values():
-                queue.append({**result["state"], **updates})
-        self.assertEqual(reached, {0, 3, 5, 10, 100})
-        for invalid in [-1, True, 2.5, "たくさん", "5.5", "-3問"]:
-            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                input_ui.prepare_intake({**base, "reverse_question_count": invalid})
-        research = input_ui.prepare_intake({"company": "対象企業", "purpose": "research",
-                                           "industry": "auto", "archetype": "auto", "reverse_question_count": 10})
-        self.assertNotIn("reverse_question_count", research["configuration"])
+                "archetype": "auto", "output_mode": "full",
+                "reverse_question_count": "auto", "interview_question_count": "auto"}
+        for field, expected in [("reverse_question_count", {0, 3, 5, 10}),
+                                ("interview_question_count", {0, 10, 50, 100})]:
+            state = dict(base)
+            state.pop(field)
+            queue, reached = [state], set()
+            while queue:
+                result = input_ui.prepare_intake(queue.pop(), "standard")
+                if result["status"] == "ready":
+                    reached.add(result["configuration"][field])
+                    continue
+                self.assertEqual(len(result["arguments"]["questions"]), 1)
+                question = result["arguments"]["questions"][0]
+                self.assertGreaterEqual(len(question["options"]), 2)
+                self.assertLessEqual(len(question["options"]), 3)
+                for updates in result["bindings"][0]["updates"].values():
+                    queue.append({**result["state"], **updates})
+            self.assertEqual(reached, expected)
+            for invalid in [-1, True, 2.5, "たくさん", "5.5", "-3問"]:
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    input_ui.prepare_intake({**base, field: invalid})
+        for purpose in ["research", "offer"]:
+            state = {**base, "purpose": purpose, "competitors": "比較A社"}
+            if purpose == "offer":
+                state.pop("output_mode")
+            ready = input_ui.prepare_intake(state)
+            self.assertNotIn("reverse_question_count", ready["configuration"])
+            self.assertNotIn("interview_question_count", ready["configuration"])
 
     def test_report_question_count_matches_ui_configuration(self):
         base = {"company": "対象企業", "purpose": "selection", "industry": "it-saas-web",
                 "role": "software-ai-engineer", "stage": "second-interview",
-                "candidate": "mid-career", "archetype": "listed-enterprise"}
+                "candidate": "mid-career", "archetype": "listed-enterprise", "interview_question_count": 0}
         for mode in ["full", "cheatsheet"]:
             for count in ["auto", 0, 1, 3, 5, 7, 10, 12, 100]:
                 with self.subTest(mode=mode, count=count):
                     ready = input_ui.prepare_intake({**base, "output_mode": mode, "reverse_question_count": count})
                     expected = ready["configuration"]["reverse_question_count"]
-                    command = [sys.executable, str(SCRIPTS_DIR / "report_generator.py"), "--mode", mode]
+                    command = [sys.executable, str(SCRIPTS_DIR / "report_generator.py"), "--mode", mode,
+                               "--interview-question-count", "0"]
                     if count != "auto":
                         command.extend(["--reverse-question-count", str(expected)])
                     result = subprocess.run(command, capture_output=True, text=True)
@@ -470,7 +484,7 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
                                      "--reverse-question-count", invalid], capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
 
-    def test_default_question_bank_has_100_distinct_questions_per_role(self):
+    def test_reverse_question_bank_supports_100_distinct_candidates_per_role(self):
         for role in patterns.ROLE_PATTERNS:
             bp = patterns.build_blueprint("対象企業", "it-saas-web", role, "first-interview",
                                           "new-grad", "listed-enterprise", [])
@@ -481,6 +495,61 @@ class TestCompanyAnalysisPlugin(unittest.TestCase):
             self.assertNotIn("を記入", output)
             for theme in reports.QUESTION_THEMES:
                 self.assertEqual(sum(q.startswith(f"【{theme}】") for q in questions), 10)
+
+    def test_interviewer_question_bank_has_100_questions_for_applicant(self):
+        for role in patterns.ROLE_PATTERNS:
+            bp = patterns.build_blueprint("対象企業", "it-saas-web", role, "first-interview",
+                                          "new-grad", "listed-enterprise", [])
+            questions = reports.interview_question_list(bp, 100).splitlines()
+            self.assertEqual(len(questions), 100)
+            # Strip numbering and category labels: different labels alone must not
+            # make repeated questions appear distinct.
+            bodies = [re.sub(r"^\d+\. 【[^】]+】", "", q) for q in questions]
+            self.assertEqual(len(set(bodies)), 100)
+            self.assertTrue(any("当社を志望する理由" in q for q in questions))
+            self.assertFalse(any("御社" in q for q in questions))
+            for theme in reports.INTERVIEW_QUESTIONS:
+                self.assertEqual(sum(f"【{theme}】" in q for q in questions), 10)
+
+    def test_both_question_counts_are_independent_in_ui_and_reports(self):
+        def numbers_in_section(markdown, phrase):
+            heading = re.search(r"^#{2,3} .*" + phrase + r".*$", markdown, re.M)
+            if heading is None:
+                return []
+            section = markdown[heading.end():]
+            next_heading = re.search(r"^#{2,3} ", section, re.M)
+            if next_heading:
+                section = section[:next_heading.start()]
+            return re.findall(r"^(\d+)\. ", section, re.M)
+
+        base = {"company": "対象企業", "purpose": "selection", "industry": "it-saas-web",
+                "role": "software-ai-engineer", "stage": "second-interview",
+                "candidate": "mid-career", "archetype": "listed-enterprise"}
+        for mode in ("full", "cheatsheet"):
+            for reverse, interview in [("auto", "auto"), (3, 7), (0, 100), (10, 0), (0, 0), (1, 1)]:
+                with self.subTest(mode=mode, reverse=reverse, interview=interview):
+                    configuration = input_ui.prepare_intake({**base, "output_mode": mode,
+                        "reverse_question_count": reverse, "interview_question_count": interview})["configuration"]
+                    command = [sys.executable, str(SCRIPTS_DIR / "report_generator.py"), "--mode", mode]
+                    if reverse != "auto":
+                        command.extend(["--reverse-question-count", str(reverse)])
+                    if interview != "auto":
+                        command.extend(["--interview-question-count", str(interview)])
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    for field, phrase in [("reverse_question_count", "応募者から企業への逆質問"),
+                                          ("interview_question_count", "企業・面接官から応募者への想定質問")]:
+                        expected = configuration[field]
+                        self.assertEqual(numbers_in_section(result.stdout, phrase),
+                                         [str(i) for i in range(1, expected + 1)])
+
+    def test_interview_count_invalid_or_inapplicable_values_fail(self):
+        script = str(SCRIPTS_DIR / "report_generator.py")
+        for arguments in [["--interview-question-count", "-1"], ["--interview-question-count", "2.5"],
+                          ["--mode", "offer-comparison", "--interview-question-count", "10"]]:
+            result = subprocess.run([sys.executable, script, *arguments], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, "")
 
     def test_self_introduction_is_separate_from_motivation(self):
         bp = patterns.build_blueprint("対象企業", "it-saas-web", "software-ai-engineer",
