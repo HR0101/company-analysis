@@ -1,0 +1,10 @@
+interface:
+  display_name: "企業分析＆選考対策マスター"
+  short_description: "業界・希望職種・何次面接かを選んで徹底的に企業分析と選考対策を行う"
+  icon_small: "./assets/icon-small.svg"
+  icon_large: "./assets/icon-large.svg"
+  brand_color: "#0EA5E9"
+  default_prompt: "$company-analysis を使って、志望企業の業界・希望職種・面接フェーズに合わせた企業分析と逆質問・志望動機を作成してください。"
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,15 @@
+{
+  "name": "company-analysis-codex",
+  "owner": {
+    "name": "HR0101",
+    "url": "https://github.com/HR0101"
+  },
+  "plugins": [
+    {
+      "name": "company-analysis",
+      "description": "業界・希望職種・何次面接かを選んで徹底的に企業分析と選考対策を行うスキルプラグイン",
+      "version": "1.0.0",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "company-analysis-codex",
+  "interface": {
+    "displayName": "企業分析＆選考対策プラグイン"
+  },
+  "plugins": [
+    {
+      "name": "company-analysis",
+      "source": {
+        "source": "local",
+        "path": "./plugins/company-analysis"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
